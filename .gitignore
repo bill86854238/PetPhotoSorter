@@ -1,0 +1,6 @@
+# 忽略照片及暫存檔
+*.jpg
+*.jpeg
+*.png
+__pycache__/
+*.pyc
