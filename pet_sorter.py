@@ -18,7 +18,7 @@ import torch
 class MockConfig:
     # 檔案路徑設定 (根據您的專案路徑設定)
     SOURCE_DIR = r"\\192.168.50.143\home\Photos\MobileBackup" # <-- 您的網路輸入路徑
-    OUTPUT_DIR = r"D:/Pet"                                   # <-- 您的本地輸出路徑
+    OUTPUT_DIR = r"\\192.168.50.143\photo\照片-Pet_分類"                                   # <-- 您的本地輸出路徑
     
     # --- 狗狗 ID 分類設定 (以二季/四季為 ID) ---
     # 亮度/顏色 初步判斷閾值 (用於將圖片分類到狗狗 ID)
