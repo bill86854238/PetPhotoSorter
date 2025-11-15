@@ -1,162 +1,106 @@
-```markdown
-# 🐶 Pet Photo Classifier  
-自動分類二季、四季的照片，並加入 CLIP 驗證、ID 修正與「潛在誤判或修正」備援資料夾機制。
+# 🐶 Pet Photo Classifier
+
+自動分類「二季 / 四季」照片，並整合 YOLO + CLIP 做驗證、毛色比對與潛在誤判標註。
 
 ---
 
-## 📌 專案用途  
-將大量手機備份照片自動分類為二季 / 四季，同時依照動作、顏色、時間等額外維度進行整理。  
-搭配 YOLO + CLIP 雙模型，可降低誤判，並建立「潛在誤判或修正」資料夾方便人工檢查。
+## 快速開始
 
----
-
-## 🧩 功能摘要  
-
-### 1️⃣ 狗狗偵測與分類  
-- 使用 **YOLOv8** 偵測照片中的狗  
-- 亮度邏輯區分：
-  - 淺色 → 二季  
-  - 深色 → 四季  
-
-### 2️⃣ CLIP 驗證與修正  
-- CLIP 驗證是否真的為狗（避免熊、狐狸等誤判）  
-- CLIP 進行毛色分析，比對初判結果後 **自動 ID 修正**  
-- 若初判與 CLIP 判斷不同 → 加上標籤 `[二季被四季修正]`  
-
-### 3️⃣ 潛在誤判備援資料夾  
-自動複製疑似誤判圖至：  
+1. 安裝需求
+```bash
+pip install -r requirements.txt
 ```
-
-潛在誤判或修正/
-
-```
-
-標籤邏輯：  
-| 觸發條件 | 標籤範例 | 說明 |
-| ---- | ---- | ---- |
-| CLIP 低信心 | `[低信心]` | 狗機率 < 設定閾值 |
-| ID 修正 | `[二季被四季修正]` | 初判與 CLIP 衝突 |
-| 兩者皆有 | `[二季被四季修正_低信心]` | 同時發生 |
-
----
-
-## 📁 輸出資料夾結構  
-
-```
-
-Pet/
-├─ 二季/
-│   ├─ 2024/
-│   └─ 2025/
-├─ 四季/
-│   ├─ 2024/
-│   └─ 2025/
-├─ 潛在誤判或修正/
-└─ logs/
-
-````
-
----
-
-## ⚙️ 安裝需求  
-
-### 安裝模型相關套件  
+或
 ```bash
 pip install ultralytics transformers torch torchvision pillow opencv-python numpy
-````
-
-### 使用的模型
-
-* YOLOv8n（物件偵測）
-* CLIP (openai/clip-vit-base-patch32)
-
----
-
-## 🛠️ Config 設定說明（部分）
-
-```python
-class Config:
-    SOURCE_DIR = Path(r"\\192.168.50.143\home\Photos\MobileBackup") 
-    OUTPUT_DIR = Path(r"D:/Pet")
-
-    BRIGHTNESS_THRESHOLD = 185
-    DOG_ID_BRIGHT_NAME = "二季"
-    DOG_ID_DARK_NAME = "四季"
-
-    CLIP_VERIFY_MULTIPLIER = 1.2
-    CLIP_MIN_DOG_PROBABILITY = 0.6
-
-    UNCERTAINTY_FOLDER_NAME = "潛在誤判或修正"
 ```
 
----
-
-## 🚀 執行方式
-
+2. 執行（使用專案根目錄）
 ```bash
-python main.py
+python pet_sorter.py
+```
+或使用腳本版本：
+```bash
+python scripts/pet_sorter.py
 ```
 
-執行後會自動：
-
-* 掃描來源資料夾
-* 依照分類結果建立資料夾
-* 將照片重新命名、複製、標註必要前綴
-* 對可疑案例加上標籤並放入備援資料夾
+注意：程式會嘗試載入 YOLO 權重 [yolov8n.pt](yolov8n.pt)。
 
 ---
 
-## 🧪 典型流程
+## 功能總覽
 
-1. 讀取照片
-2. YOLO 偵測狗
-3. 初判毛色 → 二季/四季
-4. CLIP 驗證是否為狗
-5. CLIP 毛色分析 → 修正 ID（若不一致）
-6. 若低信心或 ID 修正 → 複製到備援資料夾
-7. 依照拍照日期重新命名 → 輸出完成
+- 使用 [`get_dog_bbox`](pet_sorter.py)（YOLO）偵測狗與人。
+- 使用亮度邏輯和 [`classify_color_with_clip`](pet_sorter.py)（CLIP）判定 ID（淺色->二季、深色->四季）。
+- 使用 [`verify_is_dog_with_clip`](pet_sorter.py) 避免誤判（熊、狐狸等）。
+- 若有低信心或 ID 修正，複製至「潛在誤判或修正」資料夾，並在檔名前綴標註原因。
+- 支援依日期/動作分資料夾與以拍照時間重新命名。
 
 ---
 
-## 📜 Log 記錄
+## 執行流程（概要）
 
-每次執行會生成：
-
-```
-logs/
-  └─ misclassified_report.txt
-```
-
-內容包含：
-
-* 誤判原因
-* CLIP 機率
-* ID 修正紀錄
+1. 讀取來源資料夾（由 [`Config`](pet_sorter.py).SOURCE_DIR 提供）
+2. 預載已處理圖片哈希（[`preload_hashes`](pet_sorter.py)）
+3. 對每張圖執行 [`process_file`](pet_sorter.py)：
+   - 提取時間（EXIF 或檔名／檔案修改時間）
+   - 計算 aHash（[`calculate_aHash`](pet_sorter.py)）以避免重複
+   - YOLO 偵測與裁切（[`crop_image`](pet_sorter.py)）
+   - 縮放以加速推理（[`resize_for_ai`](pet_sorter.py)）
+   - CLIP 驗證與毛色/動作判斷（[`verify_is_dog_with_clip`](pet_sorter.py)、[`classify_color_with_clip`](pet_sorter.py)、[`classify_action`](pet_sorter.py)）
+   - 建構目標路徑並複製（[`construct_path_and_copy`](pet_sorter.py)）
 
 ---
 
-## 🧷 FAQ
+## 主要設定（摘錄）
 
-### Q1. CLIP 模型載不動 / 記憶體不足？
-
-可將模型改為更小版本或改用 CPU 模式執行。
-
-### Q2. YOLO 偵測不到狗？
-
-確認圖片是否太暗、模糊或角度怪異。
-可考慮升級模型至 yolov8s 或 yolov8m。
+在程式中的 `Config` 類別（[`Config`](pet_sorter.py)）可調整：
+- SOURCE_DIR / OUTPUT_DIR
+- BRIGHTNESS_THRESHOLD（亮度分界）
+- CLIP_VERIFY_MULTIPLIER、CLIP_MIN_DOG_PROBABILITY
+- ENABLE_DUPLICATE_CHECK、SKIP_NO_DOG、OVERWRITE_EXISTING
+- UNCERTAINTY_FOLDER_NAME（預設 "潛在誤判或修正"）
 
 ---
 
-## 🐾 支援後續功能（可加入）
+## 故障排除
 
-* 臉部辨識（區分二季 / 四季臉部特徵）
-* 動作分類更細緻（睡姿、站姿、玩玩具、奔跑等）
-* 自動產生相簿（HTML / PDF）
+- CLIP 載不動：改用 CPU 或選更小模型，或確認 transformers / torch 版本。
+  參考：[`initialize_models`](pet_sorter.py)
+- YOLO 偵測不到：嘗試提升模型大小（yolov8s / yolov8m）或調整圖片品質。
+- 中文路徑問題：程式使用 cv2.imdecode 與 numpy.fromfile 來支援。
 
 ---
 
-如果你需要我 **幫你加上程式片段**、**產生範例日誌**、或 **寫入 GitHub release 用語**，隨時跟我說！
+## 輸出結構範例
 
-```markdown
-```
+Pet/
+├─ 二季/  
+│  ├─ YYYY/MM/  
+├─ 四季/  
+├─ 潛在誤判或修正/  
+└─ logs/（含 misclassified_report.txt）
+
+---
+
+## 日誌與報表
+
+執行會輸出詳細 log（INFO / WARNING / ERROR），錯誤或疑似誤判會記錄於 logs/misclassified_report.txt。
+
+---
+
+## 參考程式檔案
+
+- 主程式與核心實作：[`pet_sorter.py`](pet_sorter.py)（含函式：[`process_file`](pet_sorter.py)、[`calculate_aHash`](pet_sorter.py)、[`get_dog_bbox`](pet_sorter.py) 等）
+- 簡化腳本：[`scripts/pet_sorter.py`](scripts/pet_sorter.py)
+- 權重檔案：[yolov8n.pt](yolov8n.pt)
+- 依賴清單：[requirements.txt](requirements.txt)
+
+---
+
+如果你要我替你：
+- 加入更完整的範例輸出（logs/misclassified_report.txt 範例），或
+- 將 README 加入執行範例截圖、或
+- 產生 release notes 範本，
+
+告訴我想要加入的內容即可，我會幫你產生對應段落與範例。
