@@ -12,11 +12,13 @@ from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 import torch
 
-# 為了展示程式碼完整性，這裡使用一個 MockConfig 模擬 cfg 檔案的內容。
+# ==============================================================================
+# 設定區塊 (Config Block)
+# ==============================================================================
 class MockConfig:
     # 檔案路徑設定 (根據您的專案路徑設定)
-    SOURCE_DIR = r"\\192.168.50.143\home\Photos\MobileBackup"
-    OUTPUT_DIR = r"D:/Pet"
+    SOURCE_DIR = r"\\192.168.50.143\home\Photos\MobileBackup" # <-- 您的網路輸入路徑
+    OUTPUT_DIR = r"D:/Pet"                                   # <-- 您的本地輸出路徑
     
     # --- 狗狗 ID 分類設定 (以二季/四季為 ID) ---
     # 亮度/顏色 初步判斷閾值 (用於將圖片分類到狗狗 ID)
@@ -30,13 +32,13 @@ class MockConfig:
     SKIP_NO_DOG = True             
     OVERWRITE_EXISTING = False     
     ENABLE_ACTION_CLASSIFY = True  # 動作分類已啟用 (透過 CLIP 實現)
-    ENABLE_DATE_CLASSIFY = False   
+    ENABLE_DATE_CLASSIFY = False   # ** 已關閉：腳本執行日期分類 (只使用批次資料夾) **
     RENAME_BY_DATETIME = True      # 檔名會加上動作標籤
     ENABLE_COLOR_CLASSIFY = True   # 毛色分類已啟用 (透過 CLIP 實現，用於輔助狗狗 ID 判斷)
     ENABLE_GEAR_CLASSIFY = False   
     
     # 【手動開關】: 若設為 False，則輸出路徑中不會有「戶外/室內」資料夾。
-    ENABLE_ENV_CLASSIFY = False     # <-- 已設定為 False
+    ENABLE_ENV_CLASSIFY = False    # ** 已關閉：環境分類 **
     
     SKIP_IF_HUMAN_FACE = False 
     
@@ -77,6 +79,7 @@ except Exception as e:
 
 # --- 初始化 YOLO 模型 ---
 try:
+    # 確保 yolov8n.pt 文件存在，如果不存在，YOLO 會自動下載
     model = YOLO("yolov8n.pt")
 except Exception as e:
     print(f"錯誤：無法載入 YOLO 模型。錯誤訊息: {e}")
@@ -107,9 +110,7 @@ def smart_brightness(img):
 
 
 def classify_action(dog_crop, cfg, filepath_name):
-    """
-    【新版】使用 CLIP 模型判斷狗的動作 (站立, 坐下, 躺臥, 活動)。
-    """
+    """使用 CLIP 模型判斷狗的動作"""
     if not CLIP_INITIALIZED or dog_crop is None or dog_crop.size == 0:
         return "動作_無效"
 
@@ -119,11 +120,10 @@ def classify_action(dog_crop, cfg, filepath_name):
     except Exception:
         return "動作_圖像轉換失敗"
 
-    # 定義動作描述 (用於 CLIP 語義判斷)
     action_descriptions = [
-        "A dog is standing and looking around.",         # 站立 (Standing)
-        "A dog is sitting with its front paws down.",   # 坐下 (Sitting)
-        "A dog is lying down, resting or sleeping.",    # 躺臥 (Lying Down/Sleeping)
+        "A dog is standing and looking around.",      # 站立 (Standing)
+        "A dog is sitting with its front paws down.",  # 坐下 (Sitting)
+        "A dog is lying down, resting or sleeping.",   # 躺臥 (Lying Down/Sleeping)
         "A dog is running, jumping, or moving quickly." # 活動 (Active/Moving)
     ]
 
@@ -136,28 +136,23 @@ def classify_action(dog_crop, cfg, filepath_name):
     logits_per_image = outputs.logits_per_image
     probs = logits_per_image.softmax(dim=1).squeeze().cpu().numpy()
     
-    # 選擇最高機率的標籤索引
     max_index = np.argmax(probs)
     action_label = action_descriptions[max_index]
 
-    # 根據最高機率的描述詞返回中文標籤
     if "standing" in action_label.lower():
         return "動作_站立"
     elif "sitting" in action_label.lower():
         return "動作_坐下"
-    # 包含 resting (休息) 或 sleeping (睡覺) 的都歸類為躺臥
     elif "lying down" in action_label.lower() or "resting" in action_label.lower() or "sleeping" in action_label.lower():
         return "動作_躺臥"
     elif "running" in action_label.lower() or "moving" in action_label.lower():
         return "動作_活動"
     
-    return "動作_中立" # 萬一都不是，歸類為中立
+    return "動作_中立" 
 
 
 def verify_is_dog_with_clip(dog_crop):
-    """
-    使用 CLIP 模型驗證偵測到的物體是否真的是狗 (排除熊、小熊貓等誤判)。
-    """
+    """使用 CLIP 模型驗證偵測到的物體是否真的是狗"""
     if not CLIP_INITIALIZED: return True
 
     if dog_crop is None or dog_crop.size == 0: return True
@@ -167,7 +162,6 @@ def verify_is_dog_with_clip(dog_crop):
         image_pil = Image.fromarray(dog_crop_rgb)
     except Exception: return True
 
-    # 驗證描述：狗 vs 幾種常見的誤判物種
     verification_descriptions = [
         "A photograph of a pet dog (Labrador, Husky, Poodle, etc.).",
         "A photograph of a bear (Black bear, brown bear, panda bear, etc.).",
@@ -186,25 +180,20 @@ def verify_is_dog_with_clip(dog_crop):
 
     dog_prob = probs[0]
     
-    # 找到所有非狗類別中的最高機率
     max_non_dog_prob = max(probs[1:])
     
-    # 判斷邏輯：如果非狗的最高機率比狗的機率高出 20% (因子 1.2)
     if max_non_dog_prob > dog_prob * 1.2:
         non_dog_index = np.argmax(probs[1:]) + 1
         non_dog_label = verification_descriptions[non_dog_index]
-        print(f"  [CLIP 驗證警告]: 狗機率 {dog_prob:.2f}。最高非狗機率 {max_non_dog_prob:.2f} ({non_dog_label[:20]}...)。判定為誤判。")
+        print(f"  [CLIP 驗證警告]: 狗機率 {dog_prob:.2f}。最高非狗機率 {max_non_dog_prob:.2f} ({non_dog_label[:20]}...)。判定為誤判。")
         return False
     
-    print(f"  [CLIP 驗證通過]: 狗機率 {dog_prob:.2f}, 非狗機率最高為 {max_non_dog_prob:.2f}。")
+    print(f"  [CLIP 驗證通過]: 狗機率 {dog_prob:.2f}, 非狗機率最高為 {max_non_dog_prob:.2f}。")
     return True
 
 
 def classify_color_with_clip(dog_crop, cfg, filepath_name):
-    """
-    使用 CLIP 模型判斷狗的顏色特徵 (深色 vs 淺色)。
-    返回的標籤用於輔助判斷狗的 ID。
-    """
+    """使用 CLIP 模型判斷狗的顏色特徵 (深色 vs 淺色)"""
     if not CLIP_INITIALIZED or dog_crop is None or dog_crop.size == 0:
         return "未知顏色", None
 
@@ -215,10 +204,10 @@ def classify_color_with_clip(dog_crop, cfg, filepath_name):
         return "圖像轉換失敗", {"file": filepath_name, "錯誤": f"圖像轉換失敗: {e}"}
 
     text_descriptions = [
-        "A dog with predominantly dark, black, or deep brown fur.",      
-        "A dog with predominantly light, yellow, tan, or white fur.",   
-        "A multi-colored dog (brindle, black and tan, etc.)",           
-        "A generic dog photograph"                                      
+        "A dog with predominantly dark, black, or deep brown fur.",     # 深色
+        "A dog with predominantly light, yellow, tan, or white fur.",   # 淺色
+        "A multi-colored dog (brindle, black and tan, etc.)",           # 多色
+        "A generic dog photograph"                                      # 通用
     ]
 
     inputs = clip_processor(text=text_descriptions, images=image_pil, return_tensors="pt", padding=True)
@@ -271,27 +260,26 @@ def get_photo_datetime(filepath):
 
 def classify_environment(img, box, cfg):
     """判斷背景是否為戶外 (檢查綠色/藍色佔比)"""
+    if not cfg.ENABLE_ENV_CLASSIFY: return "" # 如果關閉則直接返回空字串
+
     if img is None or img.size == 0: return "環境判斷錯誤"
         
     try:
         h, w, _ = img.shape
         x1, y1, x2, y2 = map(int, box.xyxy[0])
         
-        # 建立一個只包含背景的遮罩 (排除狗的偵測框)
         mask = np.ones((h, w), dtype=np.uint8) * 255
         cv2.rectangle(mask, (x1, y1), (x2, y2), 0, -1)
         
         background_pixels = np.sum(mask == 255)
-        if background_pixels == 0: return "室內/特寫"
+        if background_pixels == 0: return "室內/特寫" 
 
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         
-        # 偵測綠色 (植被) 和藍色 (天空) 像素
         green_mask = cv2.inRange(hsv, cfg.GREEN_LOWER, cfg.GREEN_UPPER)
         blue_mask = cv2.inRange(hsv, cfg.BLUE_LOWER, cfg.BLUE_UPPER)
         
         outdoor_mask = cv2.bitwise_or(green_mask, blue_mask)
-        # 只計算背景區域的綠色/藍色像素
         outdoor_mask = cv2.bitwise_and(outdoor_mask, outdoor_mask, mask=mask)
         
         outdoor_pixels = np.sum(outdoor_mask > 0)
@@ -303,8 +291,40 @@ def classify_environment(img, box, cfg):
             return "室內"
     except Exception: return "環境判斷錯誤"
 
-# --- 預備階段：初始化診斷檔案 ---
-failure_report_path = os.path.join(cfg.OUTPUT_DIR, "diagnostic_clip_analysis.txt")
+# --- 預備階段：初始化診斷檔案與設定執行批次資料夾 ---
+
+# ** 取得腳本執行當下的日期時間，並格式化為單一資料夾名稱 (YYYYMMDD_HHMMSS) **
+runtime_dt = datetime.now()
+RUNTIME_DATETIME_STR = runtime_dt.strftime("%Y%m%d_%H%M%S")
+print(f"腳本執行批次資料夾名稱: {RUNTIME_DATETIME_STR}")
+
+# ** 設定輸出路徑和診斷報告路徑 **
+target_script_dir = Path(cfg.OUTPUT_DIR) / RUNTIME_DATETIME_STR
+failure_report_path = os.path.join(target_script_dir, "diagnostic_clip_analysis.txt")
+
+# 確保批次輸出目錄存在
+try:
+    os.makedirs(target_script_dir, exist_ok=True)
+except Exception as e:
+    print(f"錯誤：無法建立或存取批次輸出目錄 {target_script_dir}。錯誤訊息: {e}")
+    sys.exit(1)
+
+
+# ** 腳本複製 (NEW: 提前到這裡執行) **
+try:
+    if len(sys.argv) > 0 and Path(sys.argv[0]).is_file():
+        current_script_path = Path(sys.argv[0])
+        target_script_path = target_script_dir / current_script_path.name
+        
+        shutil.copy2(current_script_path, target_script_path)
+        print(f"** 腳本已複製到批次目錄: {target_script_path} **")
+    else:
+        print("警告: 無法找到執行中的腳本檔案 (dog_classifier_full.py) 來複製。請手動將腳本複製到批次目錄中以供記錄。")
+except Exception as e:
+    print(f"錯誤：複製腳本檔案失敗。錯誤: {e}")
+
+
+# 初始化診斷報告檔案
 try:
     with open(failure_report_path, 'w', encoding='utf-8') as f:
         f.write(f"--- CLIP 診斷性數據列表 (開始時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
@@ -313,7 +333,8 @@ try:
 except Exception as e:
     print(f"錯誤：無法寫入診斷報告檔案 {failure_report_path}。錯誤: {e}")
 
-# --- 主程式 ---
+# --- 主程式：開始處理檔案 ---
+
 print(f"--- 開始處理目錄: {cfg.SOURCE_DIR} ---")
 
 if not Path(cfg.SOURCE_DIR).exists():
@@ -322,6 +343,7 @@ if not Path(cfg.SOURCE_DIR).exists():
 
 
 for filepath in Path(cfg.SOURCE_DIR).rglob("*"):
+    # 只處理圖片檔案
     if not filepath.is_file() or filepath.suffix.lower() not in [".jpg", ".jpeg", ".png"]:
         continue
 
@@ -329,17 +351,17 @@ for filepath in Path(cfg.SOURCE_DIR).rglob("*"):
     filepath_str = str(filepath)
     print(f"\n處理檔案: {filename}") 
 
-    # YOLO 偵測 (狗 Class ID 16, 人 Class ID 0)
+    # YOLO 偵測
     try:
         results = model(filepath_str, verbose=False)
         dogs_detected = [box for box in results[0].boxes if int(box.cls) == 16]
         people_detected = [box for box in results[0].boxes if int(box.cls) == 0] 
     except Exception as e:
-        print(f"  - YOLO 偵測失敗，跳過。錯誤: {e}")
+        print(f"  - YOLO 偵測失敗，跳過。錯誤: {e}")
         continue
 
     if cfg.SKIP_IF_HUMAN_FACE and people_detected:
-        print(f"  - 偵測到 {len(people_detected)} 個人物 -> 由於 SKIP_IF_HUMAN_FACE 啟用，跳過此檔案。")
+        print(f"  - 偵測到 {len(people_detected)} 個人物 -> 由於 SKIP_IF_HUMAN_FACE 啟用，跳過此檔案。")
         continue
 
     if not dogs_detected and cfg.SKIP_NO_DOG:
@@ -347,20 +369,21 @@ for filepath in Path(cfg.SOURCE_DIR).rglob("*"):
 
     img = cv2.imread(filepath_str)
     if img is None:
-        print("  - 無法讀取圖像，跳過。")
+        print("  - 無法讀取圖像，跳過。")
         continue
         
+    # 取得照片時間 (用於檔名命名，但不再用於路徑分類)
     photo_dt = get_photo_datetime(filepath)
     
     file_classified = False
 
     if not dogs_detected:
         # 沒有狗，但 SKIP_NO_DOG=False，歸類到 unknown
-        target_dir = os.path.join(cfg.OUTPUT_DIR, "unknown")
+        target_dir = os.path.join(target_script_dir, "unknown") # 使用提前定義的 target_script_dir
         os.makedirs(target_dir, exist_ok=True)
         dest = os.path.join(target_dir, filename)
         if not os.path.exists(dest) or cfg.OVERWRITE_EXISTING: shutil.copy2(filepath_str, dest)
-        print("  - 未偵測到狗 -> unknown")
+        print("  - 未偵測到狗 -> unknown")
         continue
 
     for idx, box in enumerate(dogs_detected, start=1):
@@ -376,14 +399,14 @@ for filepath in Path(cfg.SOURCE_DIR).rglob("*"):
         y2_crop = min(img.shape[0], y2 - shrink_h)
         
         if y1_crop >= y2_crop or x1_crop >= x2_crop:
-            print(f"  - 偵測框 {idx} 縮小後無效，跳過。")
+            print(f"  - 偵測框 {idx} 縮小後無效，跳過。")
             continue
 
         dog_crop = img[y1_crop:y2_crop, x1_crop:x2_crop]
         
-        # 0. CLIP 驗證：排除熊、小熊貓等誤判
+        # 0. CLIP 驗證
         if not verify_is_dog_with_clip(dog_crop):
-            print(f"  - 偵測框 {idx} 經 CLIP 驗證為非狗動物，跳過此偵測結果。")
+            print(f"  - 偵測框 {idx} 經 CLIP 驗證為非狗動物，跳過此偵測結果。")
             continue 
         
         # 1. 動作分類 (使用 CLIP)
@@ -392,14 +415,13 @@ for filepath in Path(cfg.SOURCE_DIR).rglob("*"):
         
         # 2. 狗狗 ID 初判 (根據亮度)
         brightness = smart_brightness(dog_crop)
-        # 亮度高或低對應到不同的狗狗 ID
         dog_id_initial = cfg.DOG_ID_BRIGHT_NAME if brightness > cfg.BRIGHTNESS_THRESHOLD else cfg.DOG_ID_DARK_NAME
         
         # 3. 輔助特徵判斷 (毛色/環境)
         color_label, diag_data = classify_color_with_clip(dog_crop, cfg, filename) if cfg.ENABLE_COLOR_CLASSIFY and CLIP_INITIALIZED else ("", None)
         
-        # 環境判斷 (只有在 ENABLE_ENV_CLASSIFY 為 True 時才執行)
-        environment = classify_environment(img, box, cfg) if cfg.ENABLE_ENV_CLASSIFY else ""
+        # 環境判斷 (如果關閉，返回空字串)
+        environment = classify_environment(img, box, cfg)
         
         # 【診斷數據輸出】
         if (diag_data or action_label_full.startswith("動作_")) and CLIP_INITIALIZED:
@@ -411,59 +433,62 @@ for filepath in Path(cfg.SOURCE_DIR).rglob("*"):
                     f.write(f"毛色詳細分數: {diag_data.get('CLIP_Scores', 'N/A')}\n")
                 f.write(f"\n")
 
-            print(f"  CLIP 動作判斷: {action_label_full}")
+            print(f"  CLIP 動作判斷: {action_label_full}")
             
 
-        # 4. 雙重判斷邏輯修正 - 使用 CLIP 毛色標籤修正狗狗 ID 判斷
+        # 4. 雙重判斷邏輯修正
         dog_id_final = dog_id_initial
         if cfg.ENABLE_COLOR_CLASSIFY and CLIP_INITIALIZED:
             if color_label == "CLIP深色米克斯": 
                 dog_id_final = cfg.DOG_ID_DARK_NAME
-                print(f"  [修正]: 初判 ID {dog_id_initial} 修正為 {dog_id_final} (因 CLIP 偵測到「深色」特徵)")
+                print(f"  [修正]: 初判 ID {dog_id_initial} 修正為 {dog_id_final} (因 CLIP 偵測到「深色」特徵)")
             elif color_label == "CLIP淺色米克斯":
                 dog_id_final = cfg.DOG_ID_BRIGHT_NAME
-                print(f"  [修正]: 初判 ID {dog_id_initial} 修正為 {dog_id_final} (因 CLIP 偵測到「淺色」特徵)")
+                print(f"  [修正]: 初判 ID {dog_id_initial} 修正為 {dog_id_final} (因 CLIP 偵測到「淺色」特徵)")
             
         # 5. 檔案重新命名與分類移動
         if cfg.RENAME_BY_DATETIME:
-            dt_str = photo_dt.strftime("%Y%m%d_%H%M%S")
-            # 確保檔名中不包含重複的動作標籤
-            clean_filename = f"{dt_str}_{idx}{filepath.suffix.lower()}"
-            if action_label_short:
-                new_filename = f"{dt_str}_{action_label_short}_{idx}{filepath.suffix.lower()}"
-            else:
-                new_filename = clean_filename
+            # 檔名仍然使用照片本身的日期時間
+            photo_dt_str_full = photo_dt.strftime("%Y%m%d_%H%M%S")
+            
+            # 處理檔名: {照片時間}_{動作標籤}_{偵測框序號}.{副檔名}
+            base_name = f"{photo_dt_str_full}_{action_label_short}_{idx}" if action_label_short else f"{photo_dt_str_full}_{idx}"
+            new_filename = f"{base_name}{filepath.suffix}"
         else:
             new_filename = filename # 保持原檔名
         
-        
-        # 決定目標目錄 (根據狗狗 ID 及環境設定)
-        target_dir = Path(cfg.OUTPUT_DIR) / dog_id_final
-        
-        if cfg.ENABLE_ENV_CLASSIFY: # 由於這裡現在是 False，將不會執行
-            target_dir = target_dir / environment 
-            print(f"  環境分類已啟用: {environment}")
-        else:
-            print("  環境分類已禁用。") # 現在會打印這句話
-            
-        target_dir.mkdir(parents=True, exist_ok=True)
-        
-        dest_path = target_dir / new_filename
-        
-        # 6. 複製檔案
-        if not dest_path.exists() or cfg.OVERWRITE_EXISTING:
-            shutil.copy2(filepath_str, dest_path)
-            print(f"  -> 成功分類至: {target_dir.relative_to(cfg.OUTPUT_DIR)} / {new_filename}")
-            file_classified = True
-        else:
-            print(f"  -> 目的地檔案已存在且 OVERWRITE_EXISTING=False，跳過複製。")
-            file_classified = True
+        # --- 路徑建構邏輯 (已簡化) ---
+        # 結構: {target_script_dir}/{DOG_ID}/{Filename}
 
-    if not file_classified and dogs_detected:
-        print("  - 檔案處理完成，但所有偵測結果皆因誤判過濾或無效框而跳過。")
-    elif not file_classified and not dogs_detected and not cfg.SKIP_NO_DOG:
-        # 處理未偵測到狗但仍需分類的情況 (已在主迴圈開頭處理，此處理論上不會觸發)
-        pass
+        # 1. 狗狗 ID (二季/四季)
+        # target_script_dir 已經包含了 {OUTPUT_DIR}/{RUNTIME_DATETIME_STR}
+        target_dir = os.path.join(target_script_dir, dog_id_final)
+        
+        # 確保目標目錄存在
+        os.makedirs(target_dir, exist_ok=True)
+        
+        dest = os.path.join(target_dir, new_filename)
+        
+        # 檢查是否已存在且不覆寫
+        if os.path.exists(dest) and not cfg.OVERWRITE_EXISTING:
+            print(f"  - 目標檔案已存在且不覆寫，跳過偵測框 {idx}。目標路徑: {dest}")
+            continue
 
-print(f"\n--- 處理完成。結果儲存於 {cfg.OUTPUT_DIR} ---")
-print(f"--- 詳細診斷數據請參閱 {failure_report_path} ---")
+        # 複製檔案
+        shutil.copy2(filepath_str, dest)
+        print(f"  - 成功分類 {dog_id_final} (亮度: {brightness:.1f})，動作: {action_label_short} -> 複製到: {target_dir}")
+        file_classified = True
+
+        # 如果有多隻狗，只處理第一個（假設主要目標）
+        break 
+
+# --- 結束處理 ---
+print(f"\n--- 處理完成 ---")
+print(f"結果輸出至: {cfg.OUTPUT_DIR}")
+
+# 診斷報告檔案結尾
+try:
+    with open(failure_report_path, 'a', encoding='utf-8') as f:
+        f.write(f"\n--- CLIP 診斷性數據列表 (結束時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
+except Exception:
+    pass
