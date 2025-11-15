@@ -19,7 +19,7 @@ import shutil
 import cv2
 import numpy as np
 from ultralytics import YOLO
-from datetime import datetime
+from datetime import datetime, date
 from PIL import Image
 import torch
 import logging
@@ -46,10 +46,17 @@ class Config:
     SOURCE_DIR = Path(r"\\192.168.50.143\home\Photos\MobileBackup") 
     OUTPUT_DIR = Path(r"D:/Pet")                                   
     
-    # --- 狗狗 ID 分類設定 ---
-    BRIGHTNESS_THRESHOLD = 185 
-    DOG_ID_BRIGHT_NAME = "二季"
-    DOG_ID_DARK_NAME = "四季"
+    # --- 狗狗 ID 分類設定 (米克斯：使用「二季」/「四季」區分兩種外觀) ---
+    BRIGHTNESS_THRESHOLD = 185 # 亮度閾值 (用於區分淺色/深色外觀)
+    DOG_ID_BRIGHT_NAME = "二季" # 代表淺色外觀的米克斯 (Bright Appearance)
+    DOG_ID_DARK_NAME = "四季"   # 代表深色外觀的米克斯 (Dark Appearance)
+    
+    # --- 年齡分類設定 (五個更精細的分組) ---
+    # 狗狗出生日期：已修正為 2022年11月23日 (使用 datetime 物件方便計算)
+    DOG_BIRTH_DATE = datetime(2022, 11, 23) 
+    
+    # 年齡分組標準：
+    # 幼犬 (0-1), 少年期 (1-3), 青壯年 (3-7), 中年期 (7-12), 老年 (12+)
     
     # --- CLIP 驗證閾值 ---
     CLIP_VERIFY_MULTIPLIER = 1.2 # 非狗機率 > 狗機率 * 1.2 視為誤判 (Failure: 直接跳過)
@@ -66,7 +73,7 @@ class Config:
     ENABLE_ENV_CLASSIFY = False    
     SKIP_IF_HUMAN_FACE = False 
     
-    # --- 新增：不確定性處理資料夾 (Misclassified/Uncertainty) ---
+    # --- 不確定性處理資料夾 ---
     UNCERTAINTY_FOLDER_NAME = "潛在誤判或修正"
     
     # --- 其他配置 ---
@@ -118,6 +125,27 @@ def initialize_models():
     except Exception as e:
         logging.error(f"錯誤：無法載入 YOLO 模型。錯誤: {e}")
         sys.exit(1)
+
+def classify_age(photo_dt, birth_dt):
+    """
+    根據照片日期和出生日期，判斷狗狗的年齡階段 (附帶數字前綴和年齡範圍以便排序和清晰度)。
+    """
+    
+    # 計算照片拍攝時的狗狗完整歲數
+    age_years = photo_dt.year - birth_dt.year - ((photo_dt.month, photo_dt.day) < (birth_dt.month, birth_dt.day))
+    
+    # 新增數字前綴和年齡範圍
+    if age_years < 1:
+        return "1_幼犬 (0-1歲)"       
+    elif age_years < 3:
+        return "2_少年期 (1-3歲)"     
+    elif age_years < 7:
+        return "3_青壯年 (3-7歲)"     
+    elif age_years < 12:
+        return "4_中年期 (7-12歲)"     
+    else:
+        return "5_老年 (12歲以上)"       
+
 
 def smart_brightness(img_bgr):
     """計算圖像最亮 20% 像素的平均亮度"""
@@ -175,7 +203,8 @@ def verify_is_dog_with_clip(image_pil):
     if not CLIP_INITIALIZED: return True, False
 
     verification_descriptions = [
-        "A photograph of a pet dog (Labrador, Husky, Poodle, etc.).",
+        # 更新：明確提及米克斯
+        "A photograph of a pet dog, including mixed-breeds (Labrador, Husky, Poodle, etc.).", 
         "A photograph of a bear (Black bear, brown bear, panda bear, etc.).",
         "A photograph of a wild animal (fox, raccoon, squirrel, etc.)."
     ]
@@ -294,7 +323,12 @@ def process_file(filepath, cfg, target_script_dir, failure_report_path):
         
     photo_dt = get_photo_datetime(image_pil, filepath)
 
-    # 2. YOLO 偵測
+    # 2. 年齡階段分類 (使用更精細的五階段分組)
+    # 此處返回的 age_category 帶有數字前綴和年齡範圍，例如 "1_幼犬 (0-1歲)"
+    age_category = classify_age(photo_dt, cfg.DOG_BIRTH_DATE)
+    logging.info(f"  - 年齡階段判斷: {age_category}")
+
+    # 3. YOLO 偵測
     try:
         results = yolo_model(str(filepath), verbose=False)
         # Class 16 is 'dog', Class 0 is 'person'
@@ -332,7 +366,7 @@ def process_file(filepath, cfg, target_script_dir, failure_report_path):
 
         dog_crop_bgr = img_bgr[y1_crop:y2_crop, x1_crop:x2_crop]
         
-        # 3. 準備 CLIP 輸入 (RGB PIL Image)
+        # 4. 準備 CLIP 輸入 (RGB PIL Image)
         try:
             dog_crop_rgb = cv2.cvtColor(dog_crop_bgr, cv2.COLOR_BGR2RGB)
             dog_crop_pil = Image.fromarray(dog_crop_rgb)
@@ -340,23 +374,23 @@ def process_file(filepath, cfg, target_script_dir, failure_report_path):
             logging.error(f"  - 偵測框 {idx} 圖像轉換失敗，跳過 CLIP 分析。")
             continue
         
-        # 4. CLIP 驗證 (誤判過濾 + 低信心標記)
+        # 5. CLIP 驗證 (誤判過濾 + 低信心標記)
         is_dog_verified, is_low_confidence = verify_is_dog_with_clip(dog_crop_pil)
         if not is_dog_verified:
             # 這是硬性誤判 (非狗機率太高)，直接跳過不複製
             continue 
         
-        # 5. 動作分類
+        # 6. 動作分類
         action_label_full = classify_action(dog_crop_pil) if cfg.ENABLE_ACTION_CLASSIFY else ""
         action_label_short = action_label_full.replace('動作_', '') if action_label_full else ""
         logging.info(f"  - 偵測框 {idx} | CLIP 動作判斷: {action_label_full}")
         
-        # 6. 狗狗 ID 初判 (根據亮度)
+        # 7. 狗狗 ID 初判 (根據亮度)
         brightness = smart_brightness(dog_crop_bgr) # 使用 BGR 格式的裁剪圖
         dog_id_initial = cfg.DOG_ID_BRIGHT_NAME if brightness > cfg.BRIGHTNESS_THRESHOLD else cfg.DOG_ID_DARK_NAME
         dog_id_final = dog_id_initial # 初始設定最終 ID
         
-        # 7. 輔助特徵判斷 (毛色/環境)
+        # 8. 輔助特徵判斷 (毛色/環境)
         color_label, diag_data = classify_color_with_clip(dog_crop_pil, filename) if cfg.ENABLE_COLOR_CLASSIFY and CLIP_INITIALIZED else ("", None)
         environment = "" 
         
@@ -364,13 +398,14 @@ def process_file(filepath, cfg, target_script_dir, failure_report_path):
         if CLIP_INITIALIZED:
             with open(failure_report_path, 'a', encoding='utf-8') as f:
                 f.write(f"檔案: {filename} | 偵測框: {idx} | 亮度(Top20): {brightness:.1f} | ID初判: {dog_id_initial}\n")
+                f.write(f"年齡階段: {age_category}\n") # 新增年齡記錄
                 f.write(f"CLIP 動作判斷: {action_label_full}\n")
                 if diag_data:
                     f.write(f"CLIP 毛色判斷: {color_label} | 依據: {diag_data.get('判斷依據', 'N/A')}\n")
                     f.write(f"毛色詳細分數: {diag_data.get('CLIP_Scores', 'N/A')}\n")
                 f.write(f"\n")
             
-        # 8. 雙重判斷邏輯修正 (毛色修正 ID)
+        # 9. 雙重判斷邏輯修正 (毛色修正 ID)
         if cfg.ENABLE_COLOR_CLASSIFY and CLIP_INITIALIZED:
             # 判斷是否從「淺色」修正為「深色」
             if color_label == "CLIP深色米克斯" and dog_id_initial != cfg.DOG_ID_DARK_NAME:
@@ -383,18 +418,20 @@ def process_file(filepath, cfg, target_script_dir, failure_report_path):
                 is_id_corrected = True
                 logging.info(f"  [修正]: ID {dog_id_initial} 修正為 {cfg.DOG_ID_BRIGHT_NAME} (CLIP淺色)")
             
-        # 9. 檔案重新命名與移動 (主分類)
+        # 10. 檔案重新命名與移動 (主分類)
         if cfg.RENAME_BY_DATETIME:
             photo_dt_str_full = photo_dt.strftime("%Y%m%d_%H%M%S")
             # 確保動作標籤在檔名中不為空
             action_part = f"_{action_label_short}" if action_label_short and action_label_short != "無效" else ""
-            base_name = f"{photo_dt_str_full}{action_part}_{idx}"
+            # 如果是多隻狗，加上_idx，否則不加
+            idx_part = f"_{idx}" if len(dogs_detected) > 1 else "" 
+            base_name = f"{photo_dt_str_full}{action_part}{idx_part}"
             new_filename = f"{base_name}{filepath.suffix}"
         else:
             new_filename = filename
         
-        # --- 主要路徑建構：存入 RUN_DIR/ID_NAME ---
-        target_dir = target_script_dir / dog_id_final
+        # --- 主要路徑建構：存入 RUN_DIR/ID_NAME/AGE_CATEGORY ---
+        target_dir = target_script_dir / dog_id_final / age_category # ID 分類 (二季/四季) -> 年齡分類 (1_幼犬 (0-1歲)/...)
         target_dir.mkdir(parents=True, exist_ok=True)
         dest = target_dir / new_filename
         
@@ -403,12 +440,12 @@ def process_file(filepath, cfg, target_script_dir, failure_report_path):
             continue
 
         shutil.copy2(filepath, dest)
-        logging.info(f"  - 成功分類 {dog_id_final} (亮度: {brightness:.1f})，動作: {action_label_short} -> 複製到: {target_dir.name}/{new_filename}")
+        logging.info(f"  - 成功分類 {dog_id_final}/{age_category} (亮度: {brightness:.1f})，動作: {action_label_short} -> 複製到: {target_dir.relative_to(target_script_dir)}/{new_filename}")
         
-        # 10. 處理潛在誤判/修正 (額外複製到專門資料夾，並加上標籤前綴)
+        # 11. 處理潛在誤判/修正 (額外複製到專門資料夾，並加上標籤前綴)
         if is_low_confidence or is_id_corrected:
             
-            # 10a. 決定標籤 (TAG)
+            # 11a. 決定標籤 (TAG)
             uncertainty_tag = ""
             if is_low_confidence and is_id_corrected:
                 # 兩者都是: 原始ID被最終ID修正 + 低信心
@@ -421,7 +458,6 @@ def process_file(filepath, cfg, target_script_dir, failure_report_path):
                 uncertainty_tag = "低信心"
                 
             # 將標籤放在檔名前，用中括號和底線隔開
-            # 最終檔名範例: [二季被四季修正]_20240101_120000_躺臥_1.jpg
             uncertain_new_filename = f"[{uncertainty_tag}]_{new_filename}"
             
             # 路徑：RUN_DIR/UNCERTAINTY_FOLDER_NAME
@@ -436,7 +472,7 @@ def process_file(filepath, cfg, target_script_dir, failure_report_path):
                 shutil.copy2(filepath, uncertain_dest)
                 logging.warning(f"  [額外複製/不確定性]: 由於 {uncertainty_tag} -> 同時複製到 {cfg.UNCERTAINTY_FOLDER_NAME}/{uncertain_new_filename}")
 
-        # 只處理第一個偵測到的狗
+        # 只處理第一個偵測到的狗 (如果想處理所有狗，需移除或註解此行)
         break 
 
 
