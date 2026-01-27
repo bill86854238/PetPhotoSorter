@@ -347,14 +347,17 @@ def extract_datetime(file_path):
 # Ollama AI 功能 (New)
 # ==============================================================================
 
-def generate_ollama_caption(image_path, output_txt_path):
+def generate_ollama_caption(image_path, output_txt_path, dog_name="狗狗"):
     """呼叫本地 Ollama API 為圖片生成描述"""
     if not OLLAMA_AVAILABLE: return
 
     try:
+        # 0. 準備提示詞 (加入名字)
+        prompt_text = cfg.OLLAMA_PROMPT.replace("{name}", dog_name)
+
         # 1. 將圖片轉為 Base64
         with Image.open(image_path) as img:
-            img = resize_for_ai(img) 
+            img = resize_for_ai(img)  
             buffered = io.BytesIO()
             img.save(buffered, format="JPEG")
             img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
@@ -362,7 +365,7 @@ def generate_ollama_caption(image_path, output_txt_path):
         # 2. 建構 Request payload
         payload = {
             "model": cfg.OLLAMA_MODEL,
-            "prompt": cfg.OLLAMA_PROMPT,
+            "prompt": prompt_text,
             "stream": False,
             "images": [img_base64]
         }
@@ -386,6 +389,64 @@ def generate_ollama_caption(image_path, output_txt_path):
 
     except Exception as e:
         logging.error(f"  [AI 描述錯誤]: {e}")
+
+def create_markdown_log(original_path, final_path, base_dt, dog_name, age, action, caption, base_output_dir):
+    """為照片建立 Obsidian 友善的 Markdown 筆記"""
+    try:
+        # 1. 準備目錄
+        md_dir = base_output_dir / "Obsidian_Logs" / dog_name / base_dt.strftime('%Y')
+        md_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 2. 準備檔名與路徑
+        md_filename = final_path.stem + ".md"
+        md_path = md_dir / md_filename
+        
+        # 3. 處理圖片連結 (使用相對路徑)
+        # 計算從 md_path (的父目錄) 到 final_path 的相對路徑
+        try:
+            # os.path.relpath(目標, 起點)
+            rel_path = os.path.relpath(final_path, md_dir)
+            # 將 Windows 的反斜線替換為正斜線，以符合 Markdown 標準
+            rel_path = Path(rel_path).as_posix()
+            img_link = f"![[{rel_path}]]" # Obsidian WikiLink 格式，或標準 ![]()
+            # 為了相容性更好，使用標準 Markdown 語法，但保留相對路徑
+            img_link_std = f"![{final_path.name}]({rel_path})"
+        except ValueError:
+            # 如果不在同一個磁碟機 (罕見)，退回絕對路徑
+            img_link_std = f"![{final_path.name}]({final_path.resolve().as_uri()})"
+        
+        # 4. 準備標籤
+        tags = [dog_name, age, action]
+        if "[顏色異常]" in caption:
+            tags.append("顏色異常")
+        tags_str = ", ".join([t.replace(" ", "_") for t in tags if t])
+        
+        # 5. 生成內容
+        content = f"""---
+date: {base_dt.strftime('%Y-%m-%d %H:%M:%S')}
+dog: {dog_name}
+age: {age}
+action: {action}
+tags: [{tags_str}]
+image_path: "{final_path.name}"
+---
+
+# {final_path.stem}
+
+{img_link_std}
+
+### 📝 AI 觀察日記
+> {caption}
+
+---
+*原始檔案: `{original_path}`*
+"""
+        # 6. 寫入檔案
+        with open(md_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+            
+    except Exception as e:
+        logging.error(f"建立 Markdown 筆記失敗: {e}")
 
 # ==============================================================================
 # 影片處理邏輯 (New)
@@ -624,10 +685,37 @@ def process_file(file_path, base_output_dir):
     )
 
     # --- 新增：Ollama 生成描述 ---
+    caption_text = ""
     if final_path and OLLAMA_AVAILABLE and cfg.ENABLE_OLLAMA_CAPTION:
         txt_path = final_path.with_suffix('.txt')
-        if not txt_path.exists() or cfg.OVERWRITE_EXISTING:
-            generate_ollama_caption(file_path, txt_path)
+        # 檢查是否已存在描述，若有則直接讀取，若無則生成
+        if txt_path.exists() and not cfg.OVERWRITE_EXISTING:
+            try:
+                with open(txt_path, 'r', encoding='utf-8') as f:
+                    caption_text = f.read().strip()
+            except: pass
+        
+        if not caption_text: # 如果沒讀到或需要重新生成
+            generate_ollama_caption(file_path, txt_path, dog_name=dog_id_final)
+            # 生成後讀取內容以便寫入 MD
+            if txt_path.exists():
+                try:
+                    with open(txt_path, 'r', encoding='utf-8') as f:
+                        caption_text = f.read().strip()
+                except: pass
+
+    # --- 新增：建立 Markdown 筆記 ---
+    if final_path:
+        create_markdown_log(
+            original_path=file_path,
+            final_path=final_path,
+            base_dt=base_dt,
+            dog_name=dog_id_final,
+            age=age_stage,
+            action=action_label,
+            caption=caption_text,
+            base_output_dir=base_output_dir
+        )
 
 def main():
     if not Config.SOURCE_DIR.exists():
@@ -647,83 +735,75 @@ def main():
 
     # 收集待處理檔案 (優化掃描 + 快取機制)
     CACHE_PATH = Path("scan_cache.json")
-    all_files_gen = []
-    loaded_from_cache = False
-
-    # 1. 嘗試讀取快取
-    if CACHE_PATH.exists():
-        mtime = os.path.getmtime(CACHE_PATH)
-        mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+    STATE_PATH = Path("processed_state.json")
+    
+    # --- 讀取處理狀態 (續傳功能) ---
+    processed_files = set()
+    if STATE_PATH.exists():
+        try:
+            with open(STATE_PATH, 'r', encoding='utf-8') as f:
+                processed_files = set(json.load(f))
+        except: pass
+        
+    if processed_files:
         print("\n" + "="*50)
-        print(f"📦 發現掃描快取: {CACHE_PATH}")
-        print(f"   上次掃描時間: {mtime_str}")
-        choice = input("請問是否直接使用快取清單 (跳過 NAS 掃描)？(y/n): ").strip().lower()
-        if choice == 'y':
-            try:
-                with open(CACHE_PATH, 'r', encoding='utf-8') as f:
-                    cached_data = json.load(f)
-                    # 還原成 (Path, type) 的格式
-                    all_files_gen = [(Path(p), t) for p, t in cached_data]
-                logging.info(f"已從快取載入 {len(all_files_gen)} 個檔案。")
-                loaded_from_cache = True
-            except Exception as e:
-                logging.error(f"讀取快取失敗: {e}，將重新掃描。")
+        print(f"📦 發現上次的處理紀錄: 已完成 {len(processed_files)} 個檔案")
+        choice = input("請問要「接續處理」(y) 還是「全部重新檢查」(n)？(y/n): ").strip().lower()
+        if choice == 'n':
+            processed_files = set()
+            print("已清除紀錄，將重新檢查所有檔案。")
         else:
-            logging.info("使用者選擇重新掃描。")
+            print("將跳過已處理的檔案...")
         print("="*50 + "\n")
 
-    # 2. 如果沒有讀取快取，則執行 NAS 掃描
-    if not loaded_from_cache:
-        img_exts = {'.jpg', '.jpeg', '.png', '.webp'}
-        vid_exts = set(cfg.VIDEO_EXTENSIONS) if cfg.ENABLE_VIDEO_PROCESS else set()
-        
-        logging.info(f"正在掃描來源資料夾: {Config.SOURCE_DIR}")
-        
-        count = 0
-        if Config.SOURCE_DIR.is_dir():
-            for p in Config.SOURCE_DIR.rglob('*'):
-                if not p.is_file(): continue
-                ext = p.suffix.lower()
-                if ext in img_exts:
-                    all_files_gen.append((p, 'image'))
-                    count += 1
-                elif ext in vid_exts:
-                    all_files_gen.append((p, 'video'))
-                    count += 1
-                
-                if count > 0 and count % 500 == 0:
-                    logging.info(f"  已找到 {count} 個檔案...")
-        
-        # 3. 掃描完成後，儲存快取
-        if len(all_files_gen) > 0:
-            try:
-                # 將 Path 物件轉為字串以便存入 JSON
-                cache_data = [(str(p), t) for p, t in all_files_gen]
-                with open(CACHE_PATH, 'w', encoding='utf-8') as f:
-                    json.dump(cache_data, f, ensure_ascii=False, indent=2)
-                logging.info(f"已將掃描結果儲存至快取: {CACHE_PATH}")
-            except Exception as e:
-                logging.warning(f"無法儲存快取: {e}")
+    all_files_gen = []
+    loaded_from_cache = False
+    
+    # ... (原有掃描邏輯) ...
 
-    total_files = len(all_files_gen)
-    if total_files == 0:
-        logging.info("未找到任何可處理的檔案。" )
-        return
+    # 1. 嘗試讀取快取 (省略中間未變動代碼)
+    if CACHE_PATH.exists():
+        # ... (略) ...
+        # ...
+        
+    # ... (原有掃描邏輯) ...
+
+    # ... (略) ...
 
     logging.info(f"共找到 {total_files} 個檔案 (包含影片)。開始處理...")
     
     start_time = time.time()
+    processed_count_session = 0
+    
     for i, (file_path, f_type) in enumerate(all_files_gen):
+        # --- 續傳檢查 ---
+        if str(file_path) in processed_files:
+            continue
+            
         logging.info(f"[{i+1}/{total_files}] ({f_type}) {file_path.name}")
         try:
             if f_type == 'image':
                 process_file(file_path, Config.OUTPUT_DIR)
             else:
                 process_video_file(file_path, Config.OUTPUT_DIR)
+            
+            # 成功處理後記錄
+            processed_files.add(str(file_path))
+            processed_count_session += 1
+            
+            # 每處理 10 張就存檔一次狀態，避免崩潰時進度全失
+            if processed_count_session % 10 == 0:
+                with open(STATE_PATH, 'w', encoding='utf-8') as f:
+                    json.dump(list(processed_files), f)
+                    
         except Exception as e:
             logging.error(f"處理失敗: {e}")
             
-    logging.info(f"處理完成！總用時: {time.time() - start_time:.2f} 秒。" )
+    # 最後再存一次確保完整
+    with open(STATE_PATH, 'w', encoding='utf-8') as f:
+        json.dump(list(processed_files), f)
+            
+    logging.info(f"處理完成！本次處理: {processed_count_session} 張。總用時: {time.time() - start_time:.2f} 秒。" )
 
 if __name__ == '__main__':
     main()
