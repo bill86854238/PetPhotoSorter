@@ -11,6 +11,7 @@
     "settings": {
         "enable_ollama": true,
         "ollama_model": "moondream",
+        "ollama_prompt": "請用繁體中文簡短描述這張圖片，重點在狗狗的動作與情緒。",
         "brightness_threshold": 185
     }
 }

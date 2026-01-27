@@ -116,7 +116,7 @@ class Config:
     ENABLE_OLLAMA_CAPTION = _settings.get("enable_ollama", True)  # 是否啟用 AI 生成描述
     OLLAMA_API_URL = "http://localhost:11434/api/generate"
     OLLAMA_MODEL = _settings.get("ollama_model", "moondream")    # 推薦使用 moondream (速度快) 或 llava (精度高)
-    OLLAMA_PROMPT = "Describe this image in one brief sentence, focusing on the dog's action and emotion."
+    OLLAMA_PROMPT = _settings.get("ollama_prompt", "請用繁體中文簡短描述這張圖片，重點在狗狗的動作與情緒。")
     
     # --- 影片處理設定 (新功能) ---
     ENABLE_VIDEO_PROCESS = True   # 是否啟用影片處理
@@ -172,17 +172,53 @@ def initialize_models():
         logging.error(f"錯誤：無法載入 YOLO 模型。{e}")
 
 def check_ollama_status():
-    """檢查 Ollama 服務是否可用"""
+    """檢查 Ollama 服務是否可用，並驗證模型是否存在"""
     if not cfg.ENABLE_OLLAMA_CAPTION:
         return False
+        
     try:
+        # 1. 檢查基本連線
         with urllib.request.urlopen("http://localhost:11434/") as response:
-            if response.status == 200:
-                logging.info(f"Ollama 服務連線成功 (Model: {cfg.OLLAMA_MODEL})。將啟用 AI 描述生成。" )
-                return True
-    except Exception:
-        logging.warning("警告：無法連線至 Ollama (localhost:11434)。AI 描述生成功能將被暫時停用。" )
-        return False
+            if response.status != 200:
+                raise ConnectionError("Ollama 服務未回應")
+                
+        # 2. 檢查指定模型是否存在
+        model_name = cfg.OLLAMA_MODEL
+        req = urllib.request.Request(
+            "http://localhost:11434/api/show", 
+            data=json.dumps({"name": model_name}).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}
+        )
+        try:
+            with urllib.request.urlopen(req) as response:
+                if response.status == 200:
+                    logging.info(f"Ollama 服務連線成功且模型 '{model_name}' 已就緒。")
+                    return True
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                logging.warning(f"Ollama 連線成功，但找不到模型 '{model_name}'。請先執行 'ollama pull {model_name}'")
+            else:
+                logging.warning(f"Ollama 模型檢查失敗: {e}")
+
+    except Exception as e:
+        logging.warning(f"警告：無法連線至 Ollama (localhost:11434) 或發生錯誤: {e}")
+
+    # 3. 詢問使用者是否繼續
+    print("\n" + "="*60)
+    print(f"⚠️  警告: Ollama AI 功能無法使用 (模型: {cfg.OLLAMA_MODEL})")
+    print("   這表示無法為照片生成文字描述，但基本的分類功能仍然可以運作。")
+    print(f"   建議指令: ollama pull {cfg.OLLAMA_MODEL}")
+    print("="*60)
+    
+    while True:
+        choice = input("請問是否要在「沒有 AI 描述」的情況下繼續執行？(y/n): ").strip().lower()
+        if choice == 'y':
+            logging.info("使用者選擇忽略 AI 錯誤，繼續執行分類任務。")
+            return False
+        elif choice == 'n':
+            logging.info("使用者中止程式。")
+            sys.exit(0)
+    
     return False
 
 OLLAMA_AVAILABLE = False # 將在 main 中更新
@@ -609,17 +645,67 @@ def main():
     global OLLAMA_AVAILABLE
     OLLAMA_AVAILABLE = check_ollama_status()
 
-    all_files = []
-    if Config.SOURCE_DIR.is_dir():
-        for p in Config.SOURCE_DIR.rglob('*'):
-            if not p.is_file(): continue
-            ext = p.suffix.lower()
-            if ext in ['.jpg', '.jpeg', '.png', '.webp']:
-                all_files.append((p, 'image'))
-            elif cfg.ENABLE_VIDEO_PROCESS and ext in cfg.VIDEO_EXTENSIONS:
-                all_files.append((p, 'video'))
+    # 收集待處理檔案 (優化掃描 + 快取機制)
+    CACHE_PATH = Path("scan_cache.json")
+    all_files_gen = []
+    loaded_from_cache = False
 
-    total_files = len(all_files)
+    # 1. 嘗試讀取快取
+    if CACHE_PATH.exists():
+        mtime = os.path.getmtime(CACHE_PATH)
+        mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+        print("\n" + "="*50)
+        print(f"📦 發現掃描快取: {CACHE_PATH}")
+        print(f"   上次掃描時間: {mtime_str}")
+        choice = input("請問是否直接使用快取清單 (跳過 NAS 掃描)？(y/n): ").strip().lower()
+        if choice == 'y':
+            try:
+                with open(CACHE_PATH, 'r', encoding='utf-8') as f:
+                    cached_data = json.load(f)
+                    # 還原成 (Path, type) 的格式
+                    all_files_gen = [(Path(p), t) for p, t in cached_data]
+                logging.info(f"已從快取載入 {len(all_files_gen)} 個檔案。")
+                loaded_from_cache = True
+            except Exception as e:
+                logging.error(f"讀取快取失敗: {e}，將重新掃描。")
+        else:
+            logging.info("使用者選擇重新掃描。")
+        print("="*50 + "\n")
+
+    # 2. 如果沒有讀取快取，則執行 NAS 掃描
+    if not loaded_from_cache:
+        img_exts = {'.jpg', '.jpeg', '.png', '.webp'}
+        vid_exts = set(cfg.VIDEO_EXTENSIONS) if cfg.ENABLE_VIDEO_PROCESS else set()
+        
+        logging.info(f"正在掃描來源資料夾: {Config.SOURCE_DIR}")
+        
+        count = 0
+        if Config.SOURCE_DIR.is_dir():
+            for p in Config.SOURCE_DIR.rglob('*'):
+                if not p.is_file(): continue
+                ext = p.suffix.lower()
+                if ext in img_exts:
+                    all_files_gen.append((p, 'image'))
+                    count += 1
+                elif ext in vid_exts:
+                    all_files_gen.append((p, 'video'))
+                    count += 1
+                
+                if count > 0 and count % 500 == 0:
+                    logging.info(f"  已找到 {count} 個檔案...")
+        
+        # 3. 掃描完成後，儲存快取
+        if len(all_files_gen) > 0:
+            try:
+                # 將 Path 物件轉為字串以便存入 JSON
+                cache_data = [(str(p), t) for p, t in all_files_gen]
+                with open(CACHE_PATH, 'w', encoding='utf-8') as f:
+                    json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                logging.info(f"已將掃描結果儲存至快取: {CACHE_PATH}")
+            except Exception as e:
+                logging.warning(f"無法儲存快取: {e}")
+
+    total_files = len(all_files_gen)
     if total_files == 0:
         logging.info("未找到任何可處理的檔案。" )
         return
@@ -627,7 +713,7 @@ def main():
     logging.info(f"共找到 {total_files} 個檔案 (包含影片)。開始處理...")
     
     start_time = time.time()
-    for i, (file_path, f_type) in enumerate(all_files):
+    for i, (file_path, f_type) in enumerate(all_files_gen):
         logging.info(f"[{i+1}/{total_files}] ({f_type}) {file_path.name}")
         try:
             if f_type == 'image':
