@@ -20,6 +20,7 @@
 """
 
 from pathlib import Path
+import platform
 import sys
 import os
 import shutil
@@ -52,15 +53,43 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 # 設定區塊 (Config Block)
 # ==============================================================================
 class Config:
+    # --- 載入外部設定 (config.json) ---
+    CONFIG_PATH = Path("config.json")
+    _config_data = {}
+    
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                _config_data = json.load(f)
+        except Exception as e:
+            logging.warning(f"載入 config.json 失敗: {e}，將使用預設值。")
+            
+    _nas_ip = _config_data.get("nas_ip", "192.168.50.143")
+    
     # 檔案路徑設定
-    SOURCE_DIR = Path(r"\\192.168.50.143\home\Photos\MobileBackup") 
-    OUTPUT_DIR = Path(r"\\192.168.50.143\photo\照片-Pet_分類") 
+    # 自動判斷作業系統
+    if platform.system() == "Darwin": # macOS
+        # macOS 透過 Finder (Cmd+K) 掛載 SMB 時，預設路徑位於 /Volumes/
+        _mac_cfg = _config_data.get("mac", {})
+        SOURCE_DIR = Path(_mac_cfg.get("source_dir", "/Volumes/home/Photos/MobileBackup"))
+        OUTPUT_DIR = Path(_mac_cfg.get("output_dir", "/Volumes/photo/照片-Pet_分類"))
+    else: # Windows (Default)
+        _win_cfg = _config_data.get("windows", {})
+        _src_tmpl = _win_cfg.get("source_dir", r"\\{ip}\home\Photos\MobileBackup")
+        _out_tmpl = _win_cfg.get("output_dir", r"\\{ip}\photo\照片-Pet_分類")
+        
+        # 替換 IP 變數
+        SOURCE_DIR = Path(_src_tmpl.replace("{ip}", _nas_ip))
+        OUTPUT_DIR = Path(_out_tmpl.replace("{ip}", _nas_ip))
+    
+    # --- 讀取其他設定 (可選) ---
+    _settings = _config_data.get("settings", {})
     
     # --- 性能優化設定 ---
     MAX_AI_INPUT_SIZE = 1024 
     
     # --- 狗狗 ID 分類設定 ---
-    BRIGHTNESS_THRESHOLD = 185 
+    BRIGHTNESS_THRESHOLD = _settings.get("brightness_threshold", 185) 
     DOG_ID_BRIGHT_NAME = "二季" 
     DOG_ID_DARK_NAME = "四季"   
     
@@ -84,9 +113,9 @@ class Config:
     ENABLE_DUPLICATE_CHECK = True 
 
     # --- Ollama AI 設定 (新功能) ---
-    ENABLE_OLLAMA_CAPTION = True  # 是否啟用 AI 生成描述
+    ENABLE_OLLAMA_CAPTION = _settings.get("enable_ollama", True)  # 是否啟用 AI 生成描述
     OLLAMA_API_URL = "http://localhost:11434/api/generate"
-    OLLAMA_MODEL = "moondream"    # 推薦使用 moondream (速度快) 或 llava (精度高)
+    OLLAMA_MODEL = _settings.get("ollama_model", "moondream")    # 推薦使用 moondream (速度快) 或 llava (精度高)
     OLLAMA_PROMPT = "Describe this image in one brief sentence, focusing on the dog's action and emotion."
     
     # --- 影片處理設定 (新功能) ---
@@ -567,6 +596,8 @@ def process_file(file_path, base_output_dir):
 def main():
     if not Config.SOURCE_DIR.exists():
         logging.error(f"來源資料夾不存在: {Config.SOURCE_DIR}")
+        if platform.system() == "Darwin":
+            logging.info("提示 (Mac): 請確認您已掛載網路磁碟 (Finder -> 前往 -> 連接伺服器 -> smb://192.168.50.143)")
         sys.exit(1)
         
     if not Config.OUTPUT_DIR.exists():

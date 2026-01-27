@@ -1,0 +1,16 @@
+{
+    "nas_ip": "192.168.1.100",
+    "windows": {
+        "source_dir": "\\\\{ip}\\Photos\\Source",
+        "output_dir": "\\\\{ip}\\Photos\\Sorted"
+    },
+    "mac": {
+        "source_dir": "/Volumes/Photos/Source",
+        "output_dir": "/Volumes/Photos/Sorted"
+    },
+    "settings": {
+        "enable_ollama": true,
+        "ollama_model": "moondream",
+        "brightness_threshold": 185
+    }
+}
