@@ -758,17 +758,66 @@ def main():
 
     all_files_gen = []
     loaded_from_cache = False
-    
-    # ... (原有掃描邏輯) ...
 
-    # 1. 嘗試讀取快取 (省略中間未變動代碼)
+    # 1. 嘗試讀取快取
     if CACHE_PATH.exists():
-        # ... (略) ...
-        # ...
-        
-    # ... (原有掃描邏輯) ...
+        mtime = os.path.getmtime(CACHE_PATH)
+        mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+        print("\n" + "="*50)
+        print(f"📦 發現掃描快取: {CACHE_PATH}")
+        print(f"   上次掃描時間: {mtime_str}")
+        choice = input("請問是否直接使用快取清單 (跳過 NAS 掃描)？(y/n): ").strip().lower()
+        if choice == 'y':
+            try:
+                with open(CACHE_PATH, 'r', encoding='utf-8') as f:
+                    cached_data = json.load(f)
+                    # 還原成 (Path, type) 的格式
+                    all_files_gen = [(Path(p), t) for p, t in cached_data]
+                logging.info(f"已從快取載入 {len(all_files_gen)} 個檔案。")
+                loaded_from_cache = True
+            except Exception as e:
+                logging.error(f"讀取快取失敗: {e}，將重新掃描。")
+        else:
+            logging.info("使用者選擇重新掃描。")
+        print("="*50 + "\n")
 
-    # ... (略) ...
+    # 2. 如果沒有讀取快取，則執行 NAS 掃描
+    if not loaded_from_cache:
+        img_exts = {'.jpg', '.jpeg', '.png', '.webp'}
+        vid_exts = set(cfg.VIDEO_EXTENSIONS) if cfg.ENABLE_VIDEO_PROCESS else set()
+        
+        logging.info(f"正在掃描來源資料夾: {Config.SOURCE_DIR}")
+        
+        count = 0
+        if Config.SOURCE_DIR.is_dir():
+            for p in Config.SOURCE_DIR.rglob('*'):
+                if not p.is_file(): continue
+                ext = p.suffix.lower()
+                if ext in img_exts:
+                    all_files_gen.append((p, 'image'))
+                    count += 1
+                elif ext in vid_exts:
+                    all_files_gen.append((p, 'video'))
+                    count += 1
+                
+                if count > 0 and count % 500 == 0:
+                    logging.info(f"  已找到 {count} 個檔案...")
+        
+        # 3. 掃描完成後，儲存快取
+        if len(all_files_gen) > 0:
+            try:
+                # 將 Path 物件轉為字串以便存入 JSON
+                cache_data = [(str(p), t) for p, t in all_files_gen]
+                with open(CACHE_PATH, 'w', encoding='utf-8') as f:
+                    json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                logging.info(f"已將掃描結果儲存至快取: {CACHE_PATH}")
+            except Exception as e:
+                logging.warning(f"無法儲存快取: {e}")
+
+    total_files = len(all_files_gen)
+    if total_files == 0:
+        logging.info("未找到任何可處理的檔案。" )
+        return
 
     logging.info(f"共找到 {total_files} 個檔案 (包含影片)。開始處理...")
     
