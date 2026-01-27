@@ -7,3 +7,7 @@ __pycache__/
 
 # 忽略個人設定檔
 config.json
+
+# 忽略執行快取與狀態檔
+processed_state.json
+scan_cache.json
