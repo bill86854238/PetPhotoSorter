@@ -10,8 +10,8 @@
     },
     "settings": {
         "enable_ollama": true,
-        "ollama_model": "moondream",
-        "ollama_prompt": "請用繁體中文簡短描述這張圖片，重點在狗狗的動作與情緒。",
+        "ollama_model": "qwen2.5vl:7b",
+        "ollama_prompt": "角色：你是一位攝影師，正在為【{name}】寫成長日記。\n\n個性：\n- 狗狗A(淺色)：家裡霸道、戶外膽小。\n- 狗狗B(深色)：溫柔、熱愛社交。\n\n寫作指令：\n1. 用生動、自然的繁體中文寫作，追求流暢的日記語感。\n2. 句型要變化，避免重複。\n3. 結合環境與個性描寫情緒。\n\n檢查：若毛色與名字設定不符，文末加「[顏色異常]」。",
         "brightness_threshold": 185
     }
 }

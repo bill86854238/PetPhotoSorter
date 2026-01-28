@@ -1,3 +1,8 @@
 ultralytics
+transformers
+torch
+torchvision
+pillow
 opencv-python
 numpy
+pathlib

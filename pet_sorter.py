@@ -64,7 +64,7 @@ class Config:
         except Exception as e:
             logging.warning(f"載入 config.json 失敗: {e}，將使用預設值。")
             
-    _nas_ip = _config_data.get("nas_ip", "192.168.50.143")
+    _nas_ip = _config_data.get("nas_ip", "192.168.1.100")
     
     # 檔案路徑設定
     # 自動判斷作業系統
@@ -102,7 +102,7 @@ class Config:
     
     # --- 功能開關 ---
     SKIP_NO_DOG = True             
-    OVERWRITE_EXISTING = False     
+    OVERWRITE_EXISTING = _settings.get("overwrite_existing", False)     
     ENABLE_ACTION_CLASSIFY = True  
     ENABLE_DATE_CLASSIFY = True   
     RENAME_BY_DATETIME = True      
@@ -721,7 +721,7 @@ def main():
     if not Config.SOURCE_DIR.exists():
         logging.error(f"來源資料夾不存在: {Config.SOURCE_DIR}")
         if platform.system() == "Darwin":
-            logging.info("提示 (Mac): 請確認您已掛載網路磁碟 (Finder -> 前往 -> 連接伺服器 -> smb://192.168.50.143)")
+            logging.info("提示 (Mac): 請確認您已掛載網路磁碟 (Finder -> 前往 -> 連接伺服器 -> smb://<YOUR_NAS_IP>)")
         sys.exit(1)
         
     if not Config.OUTPUT_DIR.exists():
