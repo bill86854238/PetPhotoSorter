@@ -1,54 +1,52 @@
-# 🐶 Pet Photo Sorter (二季與四季的照片管家)
+# 🐶 Pet Photo Sorter Pro (M4 Optimized)
 
-這是一個專為寵物家庭設計的智慧影像管理工具。透過 AI 技術，自動為您的狗狗照片進行分類、標記並生成細膩的文字描述，讓珍貴的成長紀錄更易於珍藏。
-
----
-
-## 🌟 核心功能
-
-### 1. 智慧分類與識別
-- **身分識別**：結合 YOLOv8 與 CLIP 模型，自動辨識並區分「二季（淺色）」與「四季（深色）」兩隻狗狗。
-- **動作/年齡分析**：自動歸檔至「幼犬/成犬」或「站立/奔跑/睡覺」等子資料夾。
-- **影片支援**：自動掃描影片檔，透過 AI 抽樣檢查主角是否為狗狗，並依動作歸檔。
-
-### 2. 有溫度的 AI 日記
-- **整合 Ollama (Local AI)**：在本地端使用強大的視覺模型 (Qwen2.5-VL)，為每張照片生成繁體中文情境描述。
-- **個性化 Prompt**：支援注入狗狗的「狗格」（例如：二季是膽小鬼、四季是嗨咖），讓 AI 寫出有靈魂的成長日記。
-
-### 3. Obsidian 電子相簿整合 ✨(New!)
-- **自動生成 Markdown**：每處理一張照片，自動建立對應的 `.md` 筆記。
-- **相對路徑支援**：使用標準 Markdown 相對路徑，您可以直接用 [Obsidian](https://obsidian.md/) 開啟輸出資料夾，立刻獲得一個圖文並茂的數位相簿。
-
-### 4. 針對 NAS 海量照片優化 ✨(New!)
-- **斷點續傳 (Resume)**：程式會記錄進度，若中斷執行（如斷網或手動停止），下次啟動可選擇「接續處理」，不浪費時間。
-- **掃描快取**：自動快取檔案清單，透過 VPN/Tailscale 整理數萬張照片時，不再需要每次漫長等待掃描。
+這是一個專為寵物家庭打造的「專業級」影像管理管家。針對 Apple Silicon (M4/M3/M2/M1) 進行深度效能優化，結合 macOS 原生視覺技術，讓數萬張照片的整理從沉重的任務變成一種享受。
 
 ---
 
-## 🚀 快速開始
+## 🌟 核心進化 (M4 Pro 特色)
 
-### 1. 環境準備
-確保已安裝 Python 3.9+ 與必要套件：
+### 1. 極速效能優化 (Apple Silicon Native)
+- **MPS 硬體加速**：全面啟用 Metal Performance Shaders，讓 YOLO 與 CLIP 運行在 Mac 的 GPU/NPU 上，效能提升 5-10 倍。
+- **非同步批次處理 (Batch Inference)**：採用多執行緒預載技術與批次推論（一次處理 16 張），徹底榨乾 M4 晶片的處理能力。
+
+### 2. macOS 原生美感評分系統
+- **Apple Vision 整合**：呼叫 macOS 內建的 `VNGenerateImageAestheticsScoresRequest` 演算法，瞬間為每一張照片打分 (0.0~1.0)。
+- **漏斗式篩選**：
+    - **精選組 (Score > 0.6)**：視為珍貴瞬間，啟動 Ollama AI 撰寫深情日記。
+    - **普通組**：標準分類與歸檔。
+    - **低分組 (Score < 0.2)**：自動移至 `低分` 資料夾，節省系統資源。
+
+### 3. Finder 深度整合 (Metadata & Tags)
+- **自動標籤**：根據狗狗 ID 自動打上 Finder 顏色標籤（二季：藍色、四季：橘色、精選：紅色）。
+- **分數註解**：美感分數會直接寫入檔案的「Finder 註解」欄位，讓您在 Finder 列表就能直接排序精選照片。
+
+### 4. 進階 Obsidian 紀念書
+- **星等視覺化**：筆記中自動顯示 ★★★★★ 星等評分。
+- **豐富元數據**：包含拍攝設備 (iPhone 17 Pro 預設)、驗證狀態與美感得分。
+
+---
+
+## 🚀 快速開始 (macOS 推薦)
+
+### 1. 安裝環境與原生依賴
 ```bash
-pip install -r requirements.txt
+# 安裝基礎套件
+pip install ultralytics transformers torch torchvision pillow opencv-python numpy
+
+# 安裝 macOS 原生優化套件 (僅限 Mac 使用者)
+pip install osxmetadata pyobjc-framework-Vision pyobjc-framework-Quartz
 ```
 
-### 2. 啟動 AI 服務 (推薦)
-為了獲得最佳體驗，請安裝 [Ollama](https://ollama.com/) 並下載推薦模型：
+### 2. 啟動 Ollama
 ```bash
 ollama pull qwen2.5-vl:7b
 ```
 
-### 3. 設定參數
-複製範本並建立自己的設定檔：
-```bash
-cp config_example.json config.json
-```
-編輯 `config.json`，填入您的：
-- NAS IP 或本地路徑。
-- 狗狗的名字與個性設定 (Prompt)。
+### 3. 設定 `config.json`
+您可以調整 `batch_size` (建議 16) 與 `aesthetic_score_high` 等參數，來決定哪些照片值得讓 AI 寫日記。
 
-### 4. 開始整理
+### 4. 執行
 ```bash
 python pet_sorter.py
 ```
@@ -59,37 +57,28 @@ python pet_sorter.py
 
 ```text
 照片-Pet_分類/
-├── 二季/
-│   ├── 1_幼犬 (0-1歲)/
-│   │   └── 動作_活動/
-│   │       ├── 20240101_二季_奔跑.jpg
-│   │       └── 20240101_二季_奔跑.txt (純文字描述)
-├── Obsidian_Logs/ (用 Obsidian 開啟此資料夾)
-│   ├── 二季/
-│   │   └── 2024/
-│   │       └── 20240101_二季_奔跑.md (圖文筆記)
-└── 潛在誤判或修正/ (存放信心度較低的照片)
+├── 二季/ (Finder 藍色標籤 🔵)
+│   ├── 動作_奔跑/ (包含 [S_85] 前綴的高分照片)
+│   └── ...
+├── 低分/ (美感分數過低的存檔)
+├── Obsidian_Logs/ 
+│   └── 二季/
+│       └── 2024/
+│           └── [S_85]_二季_奔跑.md (含星等 ★★★★☆ 與 AI 日記)
+└── scan_cache.json (智慧掃描快取)
 ```
 
 ---
 
 ## 🛠 技術規格
-
-- **偵測模型**：YOLOv8 (yolov8n.pt)
-- **分析模型**：CLIP (openai/clip-vit-base-patch32)
-- **視覺語言模型**：Ollama (預設 Qwen2.5-VL:7b)
-- **授權**：MIT License
-
----
-
-## 💡 常見問題
-
-**Q: 為什麼第一次執行要掃描很久？**
-A: 因為程式需要遍歷所有子資料夾。第二次執行時，程式會詢問是否使用快取，速度就會變很快。
-
-**Q: 如何在 Obsidian 看到圖片？**
-A: 請使用 Obsidian 的 "Open folder as vault" 功能，直接開啟輸出的**根目錄**（例如 `照片-Pet_分類`），這樣相對路徑才能正確連結到圖片。
+- **硬體加速**：Apple MPS (Metal) / NVIDIA CUDA / CPU
+- **美感評分**：macOS Vision Framework (Aesthetics Scores)
+- **元數據**：XATTR / Finder Info (via osxmetadata)
+- **AI 核心**：YOLOv8, CLIP, Ollama
 
 ---
 
-*(註：本專案中的「二季」與「四季」為開發者家中的愛犬名稱，您可於程式碼或設定檔中自行修改為您的寵物名稱。)*
+## 📜 授權與感謝
+本專案專為熱愛寵物的開發者打造。在 Windows 上執行時會自動退回標準模式，不影響基本功能。
+
+*(註：本專案中的「二季」與「四季」為開發者家中的愛犬名稱。如果您喜歡這套針對 Mac 優化的系統，歡迎給個 Star！)*
