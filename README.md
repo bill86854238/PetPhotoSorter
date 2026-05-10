@@ -70,11 +70,55 @@ python pet_sorter.py
 
 ---
 
+## 🖥️ Windows / 跨平台 GUI 版本
+
+現在專案已全面支援圖形化介面 (GUI)，提供更直觀的操作體驗與微軟商店 (Microsoft Store) 上架能力。
+
+### 1. 介面特色
+- **現代化設計**：支援深色模式與多國語言 (繁中/英文)。
+- **動態特徵辨識**：不再局限於特定犬種，您可以輸入「黃金獵犬」、「黑白斑點」等描述，由 CLIP AI 自動分類。
+- **統計儀表板**：即時顯示精選張數、重複項過濾與狗狗出現比例。
+- **一鍵操作**：內建 Ollama 連線測試、設定儲存與結果資料夾開啟功能。
+
+### 2. 快速啟動 GUI
+```bash
+# 安裝 UI 依賴
+pip install customtkinter
+
+# 啟動應用程式
+python gui.py
+```
+
+---
+
+## 📦 微軟商店上架與打包指南 (Windows)
+
+如果您希望將本軟體打包成獨立執行檔或提交至微軟商店，請參考以下步驟：
+
+### 第一步：生成執行檔 (EXE)
+執行專案目錄下的打包腳本：
+```bash
+python build.py
+```
+- 產出路徑：`dist/PetPhotoSorter/`
+- 特色：已整合所有 AI 模型與語言包，無需 Python 環境即可執行。
+
+### 第二步：封裝為 MSIX (商店格式)
+確保您的電腦已安裝 **Windows SDK**，然後執行：
+```bash
+python make_msix.py
+```
+- 產出路徑：`PetPhotoSorter.msix`
+- **上架須知**：提交至 Microsoft Store 時，直接上傳此 `.msix` 檔案。商店會在審核通過後自動處理數位簽章。
+
+---
+
 ## 🛠 技術規格
+- **圖形介面**：CustomTkinter (Modern UI)
+- **多國語言**：i18n 系統 (支援 JSON 擴充)
 - **硬體加速**：Apple MPS (Metal) / NVIDIA CUDA / CPU
-- **美感評分**：macOS Vision Framework (Aesthetics Scores)
-- **元數據**：XATTR / Finder Info (via osxmetadata)
-- **AI 核心**：YOLOv8, CLIP, Ollama
+- **美感評分**：CLIP Aesthetic Scoring (Windows/Mac 通用)
+- **AI 核心**：YOLOv8 (偵測), CLIP (分類), Ollama (日記)
 
 ---
 
