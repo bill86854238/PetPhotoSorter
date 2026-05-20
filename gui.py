@@ -52,12 +52,18 @@ class PetPhotoSorterApp(ctk.CTk):
         self.sep.grid(row=4, column=0, pady=5)
 
         # AI 快速開關
+        self.surveillance_switch = ctk.CTkSwitch(self.sidebar_frame, text=t("lbl_mode_surveillance"))
+        self.surveillance_switch.grid(row=5, column=0, padx=20, pady=10, sticky="w")
+        
+        self.test_mode_switch = ctk.CTkSwitch(self.sidebar_frame, text=t("lbl_mode_test"))
+        self.test_mode_switch.grid(row=6, column=0, padx=20, pady=10, sticky="w")
+
         self.ollama_switch = ctk.CTkSwitch(self.sidebar_frame, text="Ollama AI", command=self.toggle_ollama_ui)
-        self.ollama_switch.grid(row=5, column=0, padx=20, pady=10, sticky="w")
+        self.ollama_switch.grid(row=7, column=0, padx=20, pady=10, sticky="w")
         if self.engine.enable_ollama: self.ollama_switch.select()
 
         self.action_switch = ctk.CTkSwitch(self.sidebar_frame, text="CLIP Action")
-        self.action_switch.grid(row=6, column=0, padx=20, pady=10, sticky="w")
+        self.action_switch.grid(row=8, column=0, padx=20, pady=10, sticky="w")
         self.action_switch.select()
 
         # 主題切換
@@ -267,6 +273,8 @@ class PetPhotoSorterApp(ctk.CTk):
     def start_worker(self):
         self.engine.source_dir = Path(self.src_entry.get())
         self.engine.output_dir = Path(self.out_entry.get())
+        self.engine.surveillance_mode = self.surveillance_switch.get()
+        self.engine.test_mode = self.test_mode_switch.get() # 同步測試模式狀態
         self.open_out_btn.configure(state="disabled", fg_color="gray")
         self.open_obsidian_btn.configure(state="disabled", fg_color="gray")
         self.start_button.configure(state="disabled")
