@@ -41,34 +41,59 @@ class PetPhotoSorterApp(ctk.CTk):
         
         self.start_button = ctk.CTkButton(self.sidebar_frame, text=t("btn_start"), command=self.start_worker, height=45, font=ctk.CTkFont(size=16, weight="bold"))
         self.start_button.grid(row=1, column=0, padx=20, pady=10)
-        
-        self.stop_button = ctk.CTkButton(self.sidebar_frame, text=t("btn_stop"), command=self.stop_worker, fg_color="#E74C3C", hover_color="#C0392B")
+
+        self.stop_button = ctk.CTkButton(self.sidebar_frame, text=t("btn_stop"), command=self.stop_worker, fg_color="#E74C3C", hover_color="#C0392B", state="disabled")
         self.stop_button.grid(row=2, column=0, padx=20, pady=10)
 
-        self.save_button = ctk.CTkButton(self.sidebar_frame, text=t("btn_save"), command=self.save_settings, fg_color="#2ECC71", hover_color="#27AE60")
-        self.save_button.grid(row=3, column=0, padx=20, pady=10)
+        self.sep1 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
+        self.sep1.grid(row=3, column=0, pady=5)
 
-        self.sep = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
-        self.sep.grid(row=4, column=0, pady=5)
+        # 路徑設定 (移至側邊欄)
+        self.path_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
+        self.path_frame.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
+        
+        ctk.CTkLabel(self.path_frame, text=t("lbl_src_dir"), font=ctk.CTkFont(size=12)).pack(anchor="w", padx=10)
+        self.src_entry = ctk.CTkEntry(self.path_frame, height=28)
+        self.src_entry.pack(fill="x", padx=10, pady=2)
+        self.src_entry.insert(0, str(self.engine.source_dir))
+        ctk.CTkButton(self.path_frame, text=t("btn_browse"), height=24, command=lambda: self.browse_folder(self.src_entry)).pack(padx=10, pady=2, anchor="e")
+
+        ctk.CTkLabel(self.path_frame, text=t("lbl_out_dir"), font=ctk.CTkFont(size=12)).pack(anchor="w", padx=10, pady=(5, 0))
+        self.out_entry = ctk.CTkEntry(self.path_frame, height=28)
+        self.out_entry.pack(fill="x", padx=10, pady=2)
+        self.out_entry.insert(0, str(self.engine.output_dir))
+        ctk.CTkButton(self.path_frame, text=t("btn_browse"), height=24, command=lambda: self.browse_folder(self.out_entry)).pack(padx=10, pady=2, anchor="e")
+
+        self.sep2 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
+        self.sep2.grid(row=5, column=0, pady=5)
 
         # AI 快速開關
-        self.surveillance_switch = ctk.CTkSwitch(self.sidebar_frame, text=t("lbl_mode_surveillance"))
-        self.surveillance_switch.grid(row=5, column=0, padx=20, pady=10, sticky="w")
-        
-        self.test_mode_switch = ctk.CTkSwitch(self.sidebar_frame, text=t("lbl_mode_test"))
-        self.test_mode_switch.grid(row=6, column=0, padx=20, pady=10, sticky="w")
+        self.switches_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
+        self.switches_frame.grid(row=6, column=0, padx=10, pady=5, sticky="ew")
 
-        self.ollama_switch = ctk.CTkSwitch(self.sidebar_frame, text="Ollama AI", command=self.toggle_ollama_ui)
-        self.ollama_switch.grid(row=7, column=0, padx=20, pady=10, sticky="w")
+        self.surveillance_switch = ctk.CTkSwitch(self.switches_frame, text=t("lbl_mode_surveillance"))
+        self.surveillance_switch.pack(padx=10, pady=5, anchor="w")
+        
+        self.test_mode_switch = ctk.CTkSwitch(self.switches_frame, text=t("lbl_mode_test"))
+        self.test_mode_switch.pack(padx=10, pady=5, anchor="w")
+
+        self.ollama_switch = ctk.CTkSwitch(self.switches_frame, text="Ollama AI", command=self.toggle_ollama_ui)
+        self.ollama_switch.pack(padx=10, pady=5, anchor="w")
         if self.engine.enable_ollama: self.ollama_switch.select()
 
-        self.action_switch = ctk.CTkSwitch(self.sidebar_frame, text="CLIP Action")
-        self.action_switch.grid(row=8, column=0, padx=20, pady=10, sticky="w")
+        self.action_switch = ctk.CTkSwitch(self.switches_frame, text="CLIP Action")
+        self.action_switch.pack(padx=10, pady=5, anchor="w")
         self.action_switch.select()
+
+        self.sep3 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
+        self.sep3.grid(row=7, column=0, pady=5)
+
+        self.save_button = ctk.CTkButton(self.sidebar_frame, text=t("btn_save"), command=self.save_settings, fg_color="#2ECC71", hover_color="#27AE60")
+        self.save_button.grid(row=8, column=0, padx=20, pady=10)
 
         # 主題切換
         self.appearance_mode_optionemenu = ctk.CTkOptionMenu(self.sidebar_frame, values=["Light", "Dark", "System"], command=self.change_appearance_mode)
-        self.appearance_mode_optionemenu.grid(row=11, column=0, padx=20, pady=(10, 20))
+        self.appearance_mode_optionemenu.grid(row=9, column=0, padx=20, pady=(10, 20))
         self.appearance_mode_optionemenu.set("System")
 
         # --- 主面板 (Main Panel) ---
@@ -76,7 +101,6 @@ class PetPhotoSorterApp(ctk.CTk):
         self.tabview.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
         self.tabview.add(t("tab_status"))
         self.tabview.add(t("tab_ai"))
-        self.tabview.add(t("tab_path"))
 
         # --- 頁籤 1: 執行狀態 ---
         self.status_tab = self.tabview.tab(t("tab_status"))
@@ -188,26 +212,13 @@ class PetPhotoSorterApp(ctk.CTk):
         self.dog2_feat_entry.pack(side="left", padx=5)
         self.dog2_feat_entry.insert(0, self.engine.dog2_feature)
 
-        # --- 頁籤 3: 路徑設定 ---
-        self.path_tab = self.tabview.tab(t("tab_path"))
-        self.path_container = ctk.CTkFrame(self.path_tab)
-        self.path_container.pack(fill="both", expand=True, padx=20, pady=20)
-
-        ctk.CTkLabel(self.path_container, text=t("lbl_src_dir")).pack(anchor="w", padx=20, pady=(20, 5))
-        self.src_entry = ctk.CTkEntry(self.path_container)
-        self.src_entry.pack(fill="x", padx=20, pady=5)
-        self.src_entry.insert(0, str(self.engine.source_dir))
-        ctk.CTkButton(self.path_container, text=t("btn_browse"), command=lambda: self.browse_folder(self.src_entry)).pack(padx=20, pady=5)
-
-        ctk.CTkLabel(self.path_container, text=t("lbl_out_dir")).pack(anchor="w", padx=20, pady=(20, 5))
-        self.out_entry = ctk.CTkEntry(self.path_container)
-        self.out_entry.pack(fill="x", padx=20, pady=5)
-        self.out_entry.insert(0, str(self.engine.output_dir))
-        ctk.CTkButton(self.path_container, text=t("btn_browse"), command=lambda: self.browse_folder(self.out_entry)).pack(padx=20, pady=5)
-
-        ctk.CTkLabel(self.path_container, text=t("lbl_perf_setting")).pack(anchor="w", padx=20, pady=(20, 5))
-        batch_row = ctk.CTkFrame(self.path_container, fg_color="transparent")
-        batch_row.pack(fill="x", padx=20)
+        # 效能設定 (原路徑頁籤內容)
+        perf_frame = ctk.CTkFrame(self.ai_tab)
+        perf_frame.pack(fill="x", padx=20, pady=10)
+        ctk.CTkLabel(perf_frame, text=t("lbl_perf_setting"), font=ctk.CTkFont(weight="bold", size=16)).pack(pady=10)
+        
+        batch_row = ctk.CTkFrame(perf_frame, fg_color="transparent")
+        batch_row.pack(fill="x", padx=20, pady=5)
         ctk.CTkLabel(batch_row, text=t("lbl_batch_size")).pack(side="left")
         self.batch_entry = ctk.CTkEntry(batch_row, width=80)
         self.batch_entry.pack(side="left", padx=10)
@@ -278,11 +289,13 @@ class PetPhotoSorterApp(ctk.CTk):
         self.open_out_btn.configure(state="disabled", fg_color="gray")
         self.open_obsidian_btn.configure(state="disabled", fg_color="gray")
         self.start_button.configure(state="disabled")
+        self.stop_button.configure(state="normal") # 啟動時啟用停止按鈕
         self.log_textbox.delete("1.0", tk.END)
         self.engine.start_processing()
 
     def stop_worker(self):
         self.engine.stop_processing()
+        self.stop_button.configure(state="disabled") # 點擊後禁用，避免重複點擊
 
     def update_progress(self, current, total, message):
         self.after(0, self._update_progress_ui, current, total, message)
@@ -303,10 +316,13 @@ class PetPhotoSorterApp(ctk.CTk):
             ratio_text = t("lbl_ratio").split(":")[0] + ": " + " | ".join([f"{n}: {c} ({c/total_dogs:.1%})" for n, c in counts.items()])
             self.ratio_label.configure(text=ratio_text)
 
-        if current >= total and not self.engine.is_running:
+        # 只要引擎不再運行，就恢復按鈕狀態，而不僅僅依賴 progress 數值
+        if not self.engine.is_running:
             self.start_button.configure(state="normal")
-            self.open_out_btn.configure(state="normal", fg_color="#3498DB")
-            self.open_obsidian_btn.configure(state="normal", fg_color="#9B59B6")
+            self.stop_button.configure(state="disabled")
+            if current >= total: # 真的完成才開啟資料夾按鈕
+                self.open_out_btn.configure(state="normal", fg_color="#3498DB")
+                self.open_obsidian_btn.configure(state="normal", fg_color="#9B59B6")
 
     def open_output_folder(self):
         path = self.engine.output_dir

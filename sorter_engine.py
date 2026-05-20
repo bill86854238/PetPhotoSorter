@@ -53,6 +53,7 @@ class SorterEngine:
             "processed": 0,
             "total": 0,
             "high_score": 0,
+            "low_score": 0,
             "dogs_found": 0,
             "videos": 0,
             "duplicates": 0,
@@ -137,11 +138,14 @@ class SorterEngine:
         except: return False
 
     def initialize_models(self):
+        if self.yolo_model is not None: return True
+        
         if YOLO is None: return False
         self.device = self.device_pref
         if self.device == "mps" and not torch.backends.mps.is_available(): self.device = "cpu"
         elif self.device == "cuda" and not torch.cuda.is_available(): self.device = "cpu"
         
+        self.log(f"🧠 正在載入 AI 模型 (裝置: {self.device})...")
         try:
             self.yolo_model = YOLO("yolov8n.pt").to(self.device)
             if CLIPModel is not None:
@@ -149,7 +153,7 @@ class SorterEngine:
                 self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
             return True
         except Exception as e:
-            self.log(f"模型初始化失敗: {e}", logging.ERROR)
+            self.log(f"❌ 模型初始化失敗: {e}", logging.ERROR)
             return False
 
     # --- 演算法工具 ---
@@ -353,6 +357,7 @@ class SorterEngine:
         
         score = self.calculate_aesthetic_score(pil_crop)
         action = self.classify_action(pil_crop)
+        is_high = score >= self.aesthetic_high
 
         # ID 判斷 (純 CLIP 動態特徵)
         dog_name = self.classify_dog_identity(pil_crop)
@@ -540,21 +545,40 @@ class SorterEngine:
             self.log(f"生成儀表板失敗: {e}", logging.ERROR)
 
     def _run_loop(self):
-        self.stats = {k: 0 for k in self.stats}
-        self.stats["dog_counts"] = {}
+        # 徹底重置統計數據
+        self.stats = {
+            "processed": 0, "total": 0, "high_score": 0, "low_score": 0,
+            "dogs_found": 0, "videos": 0, "duplicates": 0,
+            "dog_counts": {}, "daily_summary": {}, "folder_summary": {}, "hierarchy_summary": {}
+        }
         self.known_hashes = set()
         
         try:
             if not self.initialize_models(): return
             
+            # 檢查來源目錄
+            if not self.source_dir.exists():
+                self.log(f"❌ 找不到來源目錄: {self.source_dir}\n請在「路徑設定」中確認路徑是否正確（若是網路磁碟請確保已連線）。", logging.ERROR)
+                return
+
+            self.log("🔍 正在掃描來源目錄檔案，請稍後...")
             img_exts = {'.jpg', '.jpeg', '.png', '.webp'}
             vid_exts = {'.mp4', '.mov', '.avi'}
             
-            all_paths = [p for p in self.source_dir.rglob('*') if p.is_file()]
+            try:
+                all_paths = [p for p in self.source_dir.rglob('*') if p.is_file()]
+            except Exception as e:
+                self.log(f"❌ 掃描檔案時發生錯誤: {e}\n這通常是網路路徑斷開或權限不足導致。", logging.ERROR)
+                return
+
             images = [p for p in all_paths if p.suffix.lower() in img_exts]
             videos = [p for p in all_paths if p.suffix.lower() in vid_exts]
             
             self.stats["total"] = len(images) + len(videos)
+            if self.stats["total"] == 0:
+                self.log("⚠️ 來源目錄找不到任何圖片或影片。", logging.WARNING)
+                return
+
             self.log(f"🚀 開始任務: 圖片 {len(images)}, 影片 {len(videos)}")
             
             # 處理圖片 (批次)
@@ -644,7 +668,11 @@ class SorterEngine:
                         self.progress_callback(self.stats["processed"], self.stats["total"], f"影片分析: {v.name}")
 
             self.log(f"✅ 任務完成！總數: {self.stats['processed']}, 發現狗狗: {self.stats['dogs_found']}, 精選: {self.stats['high_score']}")
-            self.generate_html_dashboard()
+            
+            if not getattr(self, "test_mode", False):
+                self.generate_html_dashboard()
+            else:
+                self.log("🧪 [測試模式] 已跳過儀表板生成與檔案輸出。")
         except Exception as e: self.log(f"❌ 錯誤: {e}", logging.ERROR)
         finally:
             self.is_running = False

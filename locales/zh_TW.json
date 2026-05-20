@@ -33,7 +33,7 @@
     "lbl_batch_size": "批次處理數量:",
     "msg_save_success": "設定已儲存",
     "msg_save_fail": "儲存失敗",
-    "lbl_mode_surveillance": "📹 監視器分析模式 (只分析不移動)",
+    "lbl_mode_surveillance": "📹 影片深度分析模式 (產生熱圖與事件日誌)",
     "lbl_mode_normal": "📸 照片分類模式 (移動並歸類)",
     "lbl_mode_test": "🧪 測試模式 (不產生檔案)"
 }

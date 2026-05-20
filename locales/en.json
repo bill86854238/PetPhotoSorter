@@ -32,5 +32,7 @@
     "lbl_perf_setting": "⚙️ Performance Settings:",
     "lbl_batch_size": "Batch Size:",
     "msg_save_success": "Settings saved successfully",
-    "msg_save_fail": "Failed to save settings"
+    "msg_save_fail": "Failed to save settings",
+    "lbl_mode_surveillance": "📹 Deep Video Analysis (Heatmaps & Events)",
+    "lbl_mode_test": "🧪 Test Mode (Dry Run)"
 }
