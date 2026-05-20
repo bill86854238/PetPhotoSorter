@@ -92,8 +92,10 @@ class SorterEngine:
         self.ollama_model = settings.get("ollama_model", "moondream")
         
         # 狗狗分類設定
-        self.dog_id_bright = settings.get("dog_id_bright", "亮色狗狗")
-        self.dog_id_dark = settings.get("dog_id_dark", "暗色狗狗")
+        self.dog1_name = settings.get("dog1_name", "暗色狗狗")
+        self.dog1_feature = settings.get("dog1_feature", "dark fur")
+        self.dog2_name = settings.get("dog2_name", "亮色狗狗")
+        self.dog2_feature = settings.get("dog2_feature", "light fur")
         self.brightness_threshold = settings.get("brightness_threshold", 185)
         self.dog_birth_date = datetime(2022, 11, 23)
         
@@ -401,18 +403,17 @@ class SorterEngine:
         self.create_markdown_log(target_path, dog_name, age_str, score, caption)
 
     def classify_dog_identity(self, pil_img):
-        """利用 CLIP 辨識狗狗身份 (二季 vs 四季)"""
+        """利用 CLIP 辨識狗狗身份"""
         if not self.clip_model: return "狗狗"
         try:
-            # 這裡的名稱可以從 config 讀取，目前預設為 二季/四季
             prompts = [
-                f"A dog named {self.dog_id_dark} with dark fur",
-                f"A dog named {self.dog_id_bright} with light fur"
+                f"A dog named {self.dog1_name} which is {self.dog1_feature}",
+                f"A dog named {self.dog2_name} which is {self.dog2_feature}"
             ]
             inputs = self.clip_processor(text=prompts, images=pil_img, return_tensors="pt", padding=True).to(self.device)
             with torch.no_grad():
                 probs = self.clip_model(**inputs).logits_per_image.softmax(dim=1).cpu().numpy()[0]
-            return self.dog_id_dark if probs[0] > probs[1] else self.dog_id_bright
+            return self.dog1_name if probs[0] > probs[1] else self.dog2_name
         except: return "狗狗"
 
     def generate_html_dashboard(self):
