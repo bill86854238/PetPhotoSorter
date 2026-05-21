@@ -114,6 +114,8 @@ class SorterEngine:
             win_cfg = self._config_data.get("windows", {})
             src_tmpl = win_cfg.get("source_dir", r"\\{ip}\home\Photos\MobileBackup")
             out_tmpl = win_cfg.get("output_dir", r"\\{ip}\photo\照片-Pet_分類")
+            
+            # 移除 .absolute() 避免觸發底層網路檢查，僅做字串替換
             self.source_dir = Path(src_tmpl.replace("{ip}", self.nas_ip))
             self.output_dir = Path(out_tmpl.replace("{ip}", self.nas_ip))
 
@@ -338,7 +340,7 @@ class SorterEngine:
     def process_image(self, img_bgr, yolo_result, file_path):
         if len(yolo_result.boxes) == 0: return
         self.stats["dogs_found"] += 1
-        
+
         # 重複檢查
         if self.enable_duplicate_check:
             h = self.calculate_ahash(img_bgr)
@@ -350,11 +352,11 @@ class SorterEngine:
         # 分類與評分
         photo_dt = datetime.fromtimestamp(os.path.getmtime(file_path))
         age_str = self.classify_age(photo_dt)
-        
+
         x1, y1, x2, y2 = map(int, yolo_result.boxes[0].xyxy[0].tolist())
         dog_crop = img_bgr[max(0, y1-20):y2+20, max(0, x1-20):x2+20]
         pil_crop = Image.fromarray(cv2.cvtColor(dog_crop if dog_crop.size > 0 else img_bgr, cv2.COLOR_BGR2RGB))
-        
+
         score = self.calculate_aesthetic_score(pil_crop)
         action = self.classify_action(pil_crop)
         is_high = score >= self.aesthetic_high
@@ -368,7 +370,7 @@ class SorterEngine:
             self.stats["daily_summary"][date_key] = {"count": 0, "high": 0}
         self.stats["daily_summary"][date_key]["count"] += 1
         if is_high: self.stats["daily_summary"][date_key]["high"] += 1
-        
+
         folder_key = action # 以動作作為主要資料夾分類摘要
         if folder_key not in self.stats["folder_summary"]:
             self.stats["folder_summary"][folder_key] = {"count": 0, "score_sum": 0.0}
@@ -386,6 +388,17 @@ class SorterEngine:
 
         # 更新狗狗個別統計
         self.stats["dog_counts"][dog_name] = self.stats["dog_counts"].get(dog_name, 0) + 1
+
+        # 深度分析模式下僅記錄，不寫入檔案
+        if getattr(self, "test_mode", False):
+            if is_high:
+                self.stats["high_score"] += 1
+            elif score < self.aesthetic_min:
+                self.stats["low_score"] += 1
+            self.log(f"👁️ [預覽] {dog_name} ({action}), 分數: {score:.2f}")
+            return
+
+        # 正常模式：寫入檔案
         if is_high:
             self.stats["high_score"] += 1
             target_dir = self.output_dir / "精選照片" / dog_name / age_str / action
@@ -394,15 +407,11 @@ class SorterEngine:
             target_dir = self.output_dir / "低分存檔"
         else:
             target_dir = self.output_dir / dog_name / age_str / action
-            
-        if getattr(self, "test_mode", False):
-            self.log(f"🧪 [測試模式] 偵測到: {dog_name} ({action}), 分數: {score:.2f}")
-            return
 
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / file_path.name
         shutil.copy2(file_path, target_path)
-        
+
         # AI 與 Markdown
         caption = self.generate_ollama_caption(file_path, dog_name) if is_high else ""
         self.create_markdown_log(target_path, dog_name, age_str, score, caption)
@@ -554,21 +563,38 @@ class SorterEngine:
         self.known_hashes = set()
         
         try:
+            # 安全地取得路徑字串
+            src_str = str(self.source_dir)
+            test_mode = getattr(self, "test_mode", False)
+
+            if test_mode:
+                self.log(f"👁️ 啟動執行 [預覽模式 - 僅分析不移動檔案]，來源: {src_str}")
+            else:
+                out_str = str(self.output_dir)
+                self.log(f"🔍 啟動執行，來源: {src_str}")
+            
             if not self.initialize_models(): return
             
-            # 檢查來源目錄
-            if not self.source_dir.exists():
-                self.log(f"❌ 找不到來源目錄: {self.source_dir}\n請在「路徑設定」中確認路徑是否正確（若是網路磁碟請確保已連線）。", logging.ERROR)
+            # 檢查來源目錄 (極其嚴密的保護，防止 WinError 53)
+            source_exists = False
+            try:
+                source_exists = self.source_dir.exists()
+            except Exception as e:
+                self.log(f"❌ 無法存取來源路徑: {src_str}\n這通常是網路磁碟未連線或路徑無效。", logging.ERROR)
                 return
 
-            self.log("🔍 正在掃描來源目錄檔案，請稍後...")
+            if not source_exists:
+                self.log(f"❌ 找不到來源目錄: {src_str}\n請確認路徑設定是否正確。", logging.ERROR)
+                return
+
+            self.log("🔍 正在掃描檔案...")
             img_exts = {'.jpg', '.jpeg', '.png', '.webp'}
             vid_exts = {'.mp4', '.mov', '.avi'}
             
             try:
                 all_paths = [p for p in self.source_dir.rglob('*') if p.is_file()]
             except Exception as e:
-                self.log(f"❌ 掃描檔案時發生錯誤: {e}\n這通常是網路路徑斷開或權限不足導致。", logging.ERROR)
+                self.log(f"❌ 掃描過程出錯 (網路可能不穩定): {e}", logging.ERROR)
                 return
 
             images = [p for p in all_paths if p.suffix.lower() in img_exts]
@@ -576,12 +602,15 @@ class SorterEngine:
             
             self.stats["total"] = len(images) + len(videos)
             if self.stats["total"] == 0:
-                self.log("⚠️ 來源目錄找不到任何圖片或影片。", logging.WARNING)
+                self.log("⚠️ 找不到可處理的檔案。", logging.WARNING)
                 return
 
-            self.log(f"🚀 開始任務: 圖片 {len(images)}, 影片 {len(videos)}")
-            
-            # 處理圖片 (批次)
+            self.log(f"🚀 開始任務: {len(images)} 張圖片, {len(videos)} 個影片")
+
+            # --- 以下處理邏輯中，只有在非測試模式且確定要寫入時才會碰觸輸出目錄 ---
+            surveillance = getattr(self, "surveillance_mode", False)
+
+            # 處理圖片
             for i in range(0, len(images), self.batch_size):
                 if self.stop_requested: break
                 batch = images[i : i + self.batch_size]
@@ -601,79 +630,67 @@ class SorterEngine:
                         self.process_image(imgs_bgr[j], res, valid_p[j])
                         self.stats["processed"] += 1
                         if self.progress_callback:
-                            self.progress_callback(self.stats["processed"], self.stats["total"], f"正在處理: {valid_p[j].name}")
+                            self.progress_callback(self.stats["processed"], self.stats["total"], f"分析中: {valid_p[j].name}")
 
-            # 處理影片 (逐一)
+            # 處理影片
             if self.enable_video:
                 for v in videos:
                     if self.stop_requested: break
                     
-                    # 判斷是否為監視器模式 (這部分之後會由 GUI 傳入或是從 config 讀取)
-                    # 目前我們先實作邏輯，之後整合 GUI 時會補上開關
-                    is_surveillance = getattr(self, "surveillance_mode", False)
-                    
-                    if is_surveillance:
-                        self.log(f"📹 監視器分析: {v.name}")
-                        # 建立資產資料夾以存放熱圖與截圖
-                        assets_rel_dir = f"{v.stem}_assets"
-                        assets_dir = self.output_dir / "監視日誌" / assets_rel_dir
+                    if surveillance:
+                        self.log(f"📹 深度分析影片: {v.name}")
                         
-                        if not getattr(self, "test_mode", False):
-                            assets_dir.mkdir(parents=True, exist_ok=True)
+                        assets_dir = None
+                        if not test_mode:
+                            try:
+                                assets_rel_dir = f"{v.stem}_assets"
+                                assets_dir = self.output_dir / "監視日誌" / assets_rel_dir
+                                assets_dir.mkdir(parents=True, exist_ok=True)
+                            except:
+                                self.log(f"⚠️ 無法寫入輸出路徑，將僅在日誌顯示結果", logging.WARNING)
+                                assets_dir = None
                         
-                        report = self.analyze_video_rich(v, assets_dir=assets_dir if not getattr(self, "test_mode", False) else None)
+                        report = self.analyze_video_rich(v, assets_dir=assets_dir)
                         
                         if report["success"] and report["events"]:
                             self.stats["videos"] += 1
-                            if not getattr(self, "test_mode", False):
-                                # 在輸出目錄產生 MD 日誌
-                                md_path = self.output_dir / "監視日誌" / f"{v.stem}.md"
-                                md_path.parent.mkdir(parents=True, exist_ok=True)
-                                
-                                # 組合 Markdown 內容，嵌入圖片
-                                heatmap_md = f"## 狗狗活動熱點統計\n![[{assets_rel_dir}/heatmap.jpg]]\n" if report["heatmap"] else ""
-                                
-                                event_lines = []
-                                for e in report["events"]:
-                                    line = f"- **{e['time']}**: {e['event']}"
-                                    if e.get("image"):
-                                        line += f"\n  ![[{assets_rel_dir}/{e['image']}]]"
-                                    event_lines.append(line)
-                                
-                                event_md = "\n".join(event_lines)
-                                
-                                content = (
-                                    f"# 監視器分析報告: {v.name}\n\n"
-                                    f"- **路徑**: `{v}`\n"
-                                    f"- **偵測結果**: {report['summary']}\n\n"
-                                    f"{heatmap_md}\n"
-                                    f"## 事件流水線\n{event_md}"
-                                )
-                                with open(md_path, 'w', encoding='utf-8') as f: f.write(content)
+                            if not test_mode and assets_dir:
+                                try:
+                                    md_path = self.output_dir / "監視日誌" / f"{v.stem}.md"
+                                    # 組合內容與寫入
+                                    heatmap_md = f"## 狗狗活動熱點統計\n![[{assets_rel_dir}/heatmap.jpg]]\n" if report["heatmap"] else ""
+                                    event_lines = [f"- **{e['time']}**: {e['event']}\n  ![[{assets_rel_dir}/{e['image']}]]" for e in report["events"]]
+                                    content = f"# 報告: {v.name}\n\n{heatmap_md}\n## 事件\n" + "\n".join(event_lines)
+                                    with open(md_path, 'w', encoding='utf-8') as f: f.write(content)
+                                    self.log(f"📝 已產生分析報告: {v.stem}.md")
+                                except: pass
                             else:
-                                self.log(f"🧪 [測試模式] 影片分析結果: {report['summary']}")
+                                self.log(f"🔍 偵測結果: {report['summary']}")
                     else:
                         has_dog, _ = self.analyze_video(v)
                         if has_dog:
                             self.stats["videos"] += 1
-                            if not getattr(self, "test_mode", False):
-                                target = self.output_dir / "影片_有狗狗"
-                                target.mkdir(parents=True, exist_ok=True)
-                                shutil.copy2(v, target / v.name)
+                            if not test_mode:
+                                try:
+                                    target = self.output_dir / "影片_有狗狗"
+                                    target.mkdir(parents=True, exist_ok=True)
+                                    shutil.copy2(v, target / v.name)
+                                except: pass
                             else:
-                                self.log(f"🧪 [測試模式] 偵測到影片中有狗狗: {v.name}")
+                                self.log(f"🔍 影片中發現狗狗: {v.name}")
                             
                     self.stats["processed"] += 1
                     if self.progress_callback:
                         self.progress_callback(self.stats["processed"], self.stats["total"], f"影片分析: {v.name}")
 
-            self.log(f"✅ 任務完成！總數: {self.stats['processed']}, 發現狗狗: {self.stats['dogs_found']}, 精選: {self.stats['high_score']}")
+            self.log(f"✅ 任務完成！處理總數: {self.stats['processed']}")
             
-            if not getattr(self, "test_mode", False):
-                self.generate_html_dashboard()
-            else:
-                self.log("🧪 [測試模式] 已跳過儀表板生成與檔案輸出。")
-        except Exception as e: self.log(f"❌ 錯誤: {e}", logging.ERROR)
+            if not test_mode:
+                try: self.generate_html_dashboard()
+                except: pass
+        except Exception as e:
+            try: self.log(f"❌ 執行中斷: {e}", logging.ERROR)
+            except: print(f"CRITICAL ERROR: {e}")
         finally:
             self.is_running = False
             if self.progress_callback: self.progress_callback(self.stats["total"], self.stats["total"], "就緒")

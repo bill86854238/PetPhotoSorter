@@ -48,10 +48,36 @@ class PetPhotoSorterApp(ctk.CTk):
         self.sep1 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
         self.sep1.grid(row=3, column=0, pady=5)
 
-        # 路徑設定 (移至側邊欄)
+        # 模式選擇 (單選) - 優先顯示
+        self.mode_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
+        self.mode_frame.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
+
+        ctk.CTkLabel(self.mode_frame, text=t("lbl_mode_title"), font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5,2))
+
+        self.mode_var = tk.StringVar(value="normal")
+
+        self.mode_normal = ctk.CTkRadioButton(self.mode_frame, text=t("lbl_mode_normal"),
+                                              variable=self.mode_var, value="normal")
+        self.mode_normal.pack(padx=15, pady=3, anchor="w")
+
+        self.mode_preview = ctk.CTkRadioButton(self.mode_frame, text=t("lbl_mode_preview"),
+                                               variable=self.mode_var, value="preview")
+        self.mode_preview.pack(padx=15, pady=3, anchor="w")
+
+        self.mode_surveillance = ctk.CTkRadioButton(self.mode_frame, text=t("lbl_mode_surveillance"),
+                                                    variable=self.mode_var, value="surveillance")
+        self.mode_surveillance.pack(padx=15, pady=3, anchor="w")
+
+        # 綁定模式切換事件
+        self.mode_var.trace_add("write", self.on_mode_change)
+
+        self.sep2 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
+        self.sep2.grid(row=5, column=0, pady=5)
+
+        # 路徑設定 (在模式選擇之後)
         self.path_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
-        self.path_frame.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
-        
+        self.path_frame.grid(row=6, column=0, padx=10, pady=5, sticky="ew")
+
         ctk.CTkLabel(self.path_frame, text=t("lbl_src_dir"), font=ctk.CTkFont(size=12)).pack(anchor="w", padx=10)
         self.src_entry = ctk.CTkEntry(self.path_frame, height=28)
         self.src_entry.pack(fill="x", padx=10, pady=2)
@@ -62,38 +88,35 @@ class PetPhotoSorterApp(ctk.CTk):
         self.out_entry = ctk.CTkEntry(self.path_frame, height=28)
         self.out_entry.pack(fill="x", padx=10, pady=2)
         self.out_entry.insert(0, str(self.engine.output_dir))
-        ctk.CTkButton(self.path_frame, text=t("btn_browse"), height=24, command=lambda: self.browse_folder(self.out_entry)).pack(padx=10, pady=2, anchor="e")
-
-        self.sep2 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
-        self.sep2.grid(row=5, column=0, pady=5)
-
-        # AI 快速開關
-        self.switches_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
-        self.switches_frame.grid(row=6, column=0, padx=10, pady=5, sticky="ew")
-
-        self.surveillance_switch = ctk.CTkSwitch(self.switches_frame, text=t("lbl_mode_surveillance"))
-        self.surveillance_switch.pack(padx=10, pady=5, anchor="w")
-        
-        self.test_mode_switch = ctk.CTkSwitch(self.switches_frame, text=t("lbl_mode_test"))
-        self.test_mode_switch.pack(padx=10, pady=5, anchor="w")
-
-        self.ollama_switch = ctk.CTkSwitch(self.switches_frame, text="Ollama AI", command=self.toggle_ollama_ui)
-        self.ollama_switch.pack(padx=10, pady=5, anchor="w")
-        if self.engine.enable_ollama: self.ollama_switch.select()
-
-        self.action_switch = ctk.CTkSwitch(self.switches_frame, text="CLIP Action")
-        self.action_switch.pack(padx=10, pady=5, anchor="w")
-        self.action_switch.select()
+        self.out_browse_btn = ctk.CTkButton(self.path_frame, text=t("btn_browse"), height=24, command=lambda: self.browse_folder(self.out_entry))
+        self.out_browse_btn.pack(padx=10, pady=2, anchor="e")
 
         self.sep3 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
         self.sep3.grid(row=7, column=0, pady=5)
 
+        # AI 功能開關
+        self.switches_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
+        self.switches_frame.grid(row=8, column=0, padx=10, pady=5, sticky="ew")
+
+        ctk.CTkLabel(self.switches_frame, text=t("lbl_ai_features"), font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5,2))
+
+        self.ollama_switch = ctk.CTkSwitch(self.switches_frame, text="Ollama AI", command=self.toggle_ollama_ui)
+        self.ollama_switch.pack(padx=15, pady=3, anchor="w")
+        if self.engine.enable_ollama: self.ollama_switch.select()
+
+        self.action_switch = ctk.CTkSwitch(self.switches_frame, text="CLIP Action")
+        self.action_switch.pack(padx=15, pady=3, anchor="w")
+        self.action_switch.select()
+
+        self.sep4 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
+        self.sep4.grid(row=9, column=0, pady=5)
+
         self.save_button = ctk.CTkButton(self.sidebar_frame, text=t("btn_save"), command=self.save_settings, fg_color="#2ECC71", hover_color="#27AE60")
-        self.save_button.grid(row=8, column=0, padx=20, pady=10)
+        self.save_button.grid(row=10, column=0, padx=20, pady=10)
 
         # 主題切換
         self.appearance_mode_optionemenu = ctk.CTkOptionMenu(self.sidebar_frame, values=["Light", "Dark", "System"], command=self.change_appearance_mode)
-        self.appearance_mode_optionemenu.grid(row=9, column=0, padx=20, pady=(10, 20))
+        self.appearance_mode_optionemenu.grid(row=11, column=0, padx=20, pady=(10, 20))
         self.appearance_mode_optionemenu.set("System")
 
         # --- 主面板 (Main Panel) ---
@@ -266,6 +289,29 @@ class PetPhotoSorterApp(ctk.CTk):
         else:
             messagebox.showerror("Error", t("msg_save_fail"))
 
+    def on_mode_change(self, *args):
+        """當模式切換時，動態調整 UI 狀態"""
+        mode = self.mode_var.get()
+
+        # 預覽模式下禁用輸出資料夾相關欄位
+        if mode == "preview":
+            self.out_entry.configure(state="disabled", fg_color=("gray85", "gray25"))
+            self.out_browse_btn.configure(state="disabled", fg_color="gray")
+            # 儲存原始路徑（如果不是提示文字）
+            current_path = self.out_entry.get()
+            if current_path and current_path != "預覽模式不需要輸出資料夾":
+                self._saved_output_path = current_path
+            self.out_entry.delete(0, tk.END)
+            self.out_entry.insert(0, "預覽模式不需要輸出資料夾")
+        else:
+            self.out_entry.configure(state="normal", fg_color=("white", "gray14"))
+            self.out_browse_btn.configure(state="normal", fg_color=("#3B8ED0", "#1F6AA5"))
+            # 恢復之前儲存的路徑
+            if self.out_entry.get() == "預覽模式不需要輸出資料夾":
+                self.out_entry.delete(0, tk.END)
+                restored_path = getattr(self, "_saved_output_path", str(self.engine.output_dir))
+                self.out_entry.insert(0, restored_path)
+
     def toggle_ollama_ui(self):
         self.ollama_frame.configure(border_width=2 if self.ollama_switch.get() else 0)
 
@@ -282,14 +328,24 @@ class PetPhotoSorterApp(ctk.CTk):
         ctk.set_appearance_mode(new_appearance_mode)
 
     def start_worker(self):
-        self.engine.source_dir = Path(self.src_entry.get())
-        self.engine.output_dir = Path(self.out_entry.get())
-        self.engine.surveillance_mode = self.surveillance_switch.get()
-        self.engine.test_mode = self.test_mode_switch.get() # 同步測試模式狀態
+        # 根據單選模式設定引擎狀態
+        mode = self.mode_var.get()
+        self.engine.surveillance_mode = (mode == "surveillance")
+        self.engine.test_mode = (mode == "preview")
+
+        try:
+            self.engine.source_dir = Path(self.src_entry.get())
+            # 預覽模式下不需要輸出資料夾
+            if mode != "preview":
+                self.engine.output_dir = Path(self.out_entry.get())
+        except Exception as e:
+            self.append_log(f"❌ 路徑格式錯誤: {e}", logging.ERROR)
+            return
+
         self.open_out_btn.configure(state="disabled", fg_color="gray")
         self.open_obsidian_btn.configure(state="disabled", fg_color="gray")
         self.start_button.configure(state="disabled")
-        self.stop_button.configure(state="normal") # 啟動時啟用停止按鈕
+        self.stop_button.configure(state="normal")
         self.log_textbox.delete("1.0", tk.END)
         self.engine.start_processing()
 
