@@ -639,31 +639,46 @@ class SorterEngine:
                     
                     if surveillance:
                         self.log(f"📹 深度分析影片: {v.name}")
-                        
+
                         assets_dir = None
+                        md_path = None
+
+                        # 決定輸出位置
+                        output_location = getattr(self, "analysis_output_location", "output_dir")
+
                         if not test_mode:
                             try:
                                 assets_rel_dir = f"{v.stem}_assets"
-                                assets_dir = self.output_dir / "監視日誌" / assets_rel_dir
+
+                                if output_location == "source_dir":
+                                    # 輸出到來源同層
+                                    assets_dir = v.parent / assets_rel_dir
+                                    md_path = v.parent / f"{v.stem}_analysis.md"
+                                else:
+                                    # 輸出到獨立資料夾
+                                    assets_dir = self.output_dir / "監視日誌" / assets_rel_dir
+                                    md_path = self.output_dir / "監視日誌" / f"{v.stem}.md"
+
                                 assets_dir.mkdir(parents=True, exist_ok=True)
-                            except:
-                                self.log(f"⚠️ 無法寫入輸出路徑，將僅在日誌顯示結果", logging.WARNING)
+                            except Exception as e:
+                                self.log(f"⚠️ 無法寫入輸出路徑: {e}，將僅在日誌顯示結果", logging.WARNING)
                                 assets_dir = None
-                        
+                                md_path = None
+
                         report = self.analyze_video_rich(v, assets_dir=assets_dir)
-                        
+
                         if report["success"] and report["events"]:
                             self.stats["videos"] += 1
-                            if not test_mode and assets_dir:
+                            if not test_mode and assets_dir and md_path:
                                 try:
-                                    md_path = self.output_dir / "監視日誌" / f"{v.stem}.md"
                                     # 組合內容與寫入
                                     heatmap_md = f"## 狗狗活動熱點統計\n![[{assets_rel_dir}/heatmap.jpg]]\n" if report["heatmap"] else ""
                                     event_lines = [f"- **{e['time']}**: {e['event']}\n  ![[{assets_rel_dir}/{e['image']}]]" for e in report["events"]]
                                     content = f"# 報告: {v.name}\n\n{heatmap_md}\n## 事件\n" + "\n".join(event_lines)
                                     with open(md_path, 'w', encoding='utf-8') as f: f.write(content)
-                                    self.log(f"📝 已產生分析報告: {v.stem}.md")
-                                except: pass
+                                    self.log(f"📝 已產生分析報告: {md_path.name} (位於: {md_path.parent})")
+                                except Exception as e:
+                                    self.log(f"⚠️ 寫入報告失敗: {e}", logging.WARNING)
                             else:
                                 self.log(f"🔍 偵測結果: {report['summary']}")
                     else:

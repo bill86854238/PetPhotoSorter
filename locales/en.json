@@ -34,8 +34,10 @@
     "msg_save_success": "Settings saved successfully",
     "msg_save_fail": "Failed to save settings",
     "lbl_mode_title": "🎯 Operation Mode",
-    "lbl_mode_normal": "📸 Photo Sorting (Move & Organize)",
+    "lbl_mode_normal": "📸 Normal Mode (Move & Organize)",
     "lbl_mode_preview": "👁️ Preview Mode (Analyze Only)",
-    "lbl_mode_surveillance": "📹 Surveillance Analysis (Heatmaps & Events)",
-    "lbl_ai_features": "🤖 AI Features"
+    "lbl_ai_features": "🤖 AI Features",
+    "lbl_surveillance_feature": "📹 Deep Video Analysis (Surveillance)",
+    "lbl_analysis_to_output": "Output to separate folder",
+    "lbl_analysis_to_source": "Output to source directory"
 }

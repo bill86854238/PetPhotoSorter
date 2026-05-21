@@ -34,8 +34,10 @@
     "msg_save_success": "設定已儲存",
     "msg_save_fail": "儲存失敗",
     "lbl_mode_title": "🎯 執行模式",
-    "lbl_mode_normal": "📸 照片分類 (移動並整理檔案)",
+    "lbl_mode_normal": "📸 正常模式 (移動並整理檔案)",
     "lbl_mode_preview": "👁️ 預覽模式 (僅分析不移動)",
-    "lbl_mode_surveillance": "📹 監視器分析 (熱圖+事件日誌)",
-    "lbl_ai_features": "🤖 AI 功能"
+    "lbl_ai_features": "🤖 AI 功能",
+    "lbl_surveillance_feature": "📹 影片深度分析 (監視器模式)",
+    "lbl_analysis_to_output": "輸出到獨立資料夾",
+    "lbl_analysis_to_source": "輸出到來源同層"
 }

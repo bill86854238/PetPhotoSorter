@@ -64,12 +64,31 @@ class PetPhotoSorterApp(ctk.CTk):
                                                variable=self.mode_var, value="preview")
         self.mode_preview.pack(padx=15, pady=3, anchor="w")
 
-        self.mode_surveillance = ctk.CTkRadioButton(self.mode_frame, text=t("lbl_mode_surveillance"),
-                                                    variable=self.mode_var, value="surveillance")
-        self.mode_surveillance.pack(padx=15, pady=3, anchor="w")
-
         # 綁定模式切換事件
         self.mode_var.trace_add("write", self.on_mode_change)
+
+        # 影片深度分析選項（在模式下方）
+        self.surveillance_switch = ctk.CTkSwitch(self.mode_frame, text=t("lbl_surveillance_feature"), command=self.toggle_surveillance_ui)
+        self.surveillance_switch.pack(padx=15, pady=(8,3), anchor="w")
+
+        # 監視器分析子選項（縮排顯示）
+        self.surveillance_detail_frame = ctk.CTkFrame(self.mode_frame, fg_color="transparent")
+        self.surveillance_detail_frame.pack(padx=25, pady=(0,5), anchor="w", fill="x")
+
+        self.analysis_output_var = tk.StringVar(value="output_dir")
+
+        self.analysis_to_output = ctk.CTkRadioButton(self.surveillance_detail_frame, text=t("lbl_analysis_to_output"),
+                                                     variable=self.analysis_output_var, value="output_dir",
+                                                     font=ctk.CTkFont(size=11))
+        self.analysis_to_output.pack(pady=1, anchor="w")
+
+        self.analysis_to_source = ctk.CTkRadioButton(self.surveillance_detail_frame, text=t("lbl_analysis_to_source"),
+                                                     variable=self.analysis_output_var, value="source_dir",
+                                                     font=ctk.CTkFont(size=11))
+        self.analysis_to_source.pack(pady=1, anchor="w")
+
+        # 初始隱藏子選項
+        self.surveillance_detail_frame.pack_forget()
 
         self.sep2 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
         self.sep2.grid(row=5, column=0, pady=5)
@@ -312,6 +331,13 @@ class PetPhotoSorterApp(ctk.CTk):
                 restored_path = getattr(self, "_saved_output_path", str(self.engine.output_dir))
                 self.out_entry.insert(0, restored_path)
 
+    def toggle_surveillance_ui(self):
+        """切換監視器分析子選項的顯示"""
+        if self.surveillance_switch.get():
+            self.surveillance_detail_frame.pack(padx=25, pady=(0,5), anchor="w", fill="x")
+        else:
+            self.surveillance_detail_frame.pack_forget()
+
     def toggle_ollama_ui(self):
         self.ollama_frame.configure(border_width=2 if self.ollama_switch.get() else 0)
 
@@ -330,8 +356,11 @@ class PetPhotoSorterApp(ctk.CTk):
     def start_worker(self):
         # 根據單選模式設定引擎狀態
         mode = self.mode_var.get()
-        self.engine.surveillance_mode = (mode == "surveillance")
         self.engine.test_mode = (mode == "preview")
+
+        # 監視器分析功能與輸出位置
+        self.engine.surveillance_mode = self.surveillance_switch.get()
+        self.engine.analysis_output_location = self.analysis_output_var.get()
 
         try:
             self.engine.source_dir = Path(self.src_entry.get())
