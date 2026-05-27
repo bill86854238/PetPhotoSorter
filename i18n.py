@@ -10,7 +10,7 @@ class I18n:
         
         if not lang:
             sys_lang, _ = locale.getdefaultlocale()
-            lang = "zh_TW" if sys_lang and "zh" in sys_lang.lower() else "en"
+            lang = "zh_TW" if not sys_lang or sys_lang == "C" or "zh" in sys_lang.lower() else "en"
             
         self.lang = lang
         self.translations = {}

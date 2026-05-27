@@ -104,6 +104,7 @@ class SorterEngine:
         self.enable_video = settings.get("enable_video", True)
         self.enable_duplicate_check = settings.get("enable_duplicate_check", True)
         self.enable_action_classify = settings.get("enable_action_classify", True)
+        self.copy_files = settings.get("copy_files", False)  # 預設不複製，只分析
 
         # 決定路徑 (GUI 啟動時會被覆蓋)
         if platform.system() == "Darwin":
@@ -389,30 +390,29 @@ class SorterEngine:
         # 更新狗狗個別統計
         self.stats["dog_counts"][dog_name] = self.stats["dog_counts"].get(dog_name, 0) + 1
 
-        # 深度分析模式下僅記錄，不寫入檔案
-        if getattr(self, "test_mode", False):
-            if is_high:
-                self.stats["high_score"] += 1
-            elif score < self.aesthetic_min:
-                self.stats["low_score"] += 1
-            self.log(f"👁️ [預覽] {dog_name} ({action}), 分數: {score:.2f}")
-            return
-
-        # 正常模式：寫入檔案
+        # 統計分數
         if is_high:
             self.stats["high_score"] += 1
-            target_dir = self.output_dir / "精選照片" / dog_name / age_str / action
         elif score < self.aesthetic_min:
             self.stats["low_score"] += 1
+
+        # 預設只記錄，不動檔案；需勾選「複製到輸出資料夾」才複製
+        if getattr(self, "test_mode", False) or not self.copy_files:
+            self.log(f"🐶 {file_path.name} | {dog_name} | {action} | 分數: {score:.2f}{'  ★精選' if is_high else ''}")
+            return
+
+        # 複製模式
+        if is_high:
+            target_dir = self.output_dir / "精選照片" / dog_name / age_str / action
+        elif score < self.aesthetic_min:
             target_dir = self.output_dir / "低分存檔"
         else:
             target_dir = self.output_dir / dog_name / age_str / action
 
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / file_path.name
-        shutil.copy2(file_path, target_path)
+        shutil.move(str(file_path), target_path)
 
-        # AI 與 Markdown
         caption = self.generate_ollama_caption(file_path, dog_name) if is_high else ""
         self.create_markdown_log(target_path, dog_name, age_str, score, caption)
 

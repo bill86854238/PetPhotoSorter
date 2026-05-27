@@ -34,10 +34,13 @@
     "msg_save_success": "設定已儲存",
     "msg_save_fail": "儲存失敗",
     "lbl_mode_title": "🎯 執行模式",
-    "lbl_mode_normal": "📸 正常模式 (移動並整理檔案)",
-    "lbl_mode_preview": "👁️ 預覽模式 (僅分析不移動)",
-    "lbl_ai_features": "🤖 AI 功能",
-    "lbl_surveillance_feature": "📹 影片深度分析 (監視器模式)",
-    "lbl_analysis_to_output": "輸出到獨立資料夾",
-    "lbl_analysis_to_source": "輸出到來源同層"
+    "lbl_mode_sort": "📸 尋找並分類",
+    "lbl_mode_sort_desc": "掃描來源資料夾，找出狗狗照片\n並移動到輸出資料夾整理",
+    "lbl_mode_preview": "👁️ 預覽尋找分類",
+    "lbl_mode_preview_desc": "分析照片但不移動任何檔案\n用於確認分析結果",
+    "lbl_mode_deep": "📹 深度分析",
+    "lbl_mode_deep_desc": "逐幀分析縮時／監視器影片\n產生分析報告，不移動任何檔案",
+    "lbl_analysis_to_output": "報告輸出到獨立資料夾",
+    "lbl_analysis_to_source": "報告輸出到來源同層",
+    "lbl_ai_features": "🤖 AI 功能"
 }

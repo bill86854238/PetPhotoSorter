@@ -33,7 +33,7 @@ class PetPhotoSorterApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
 
         # --- 側邊欄 (Sidebar) ---
-        self.sidebar_frame = ctk.CTkFrame(self, width=240, corner_radius=0)
+        self.sidebar_frame = ctk.CTkScrollableFrame(self, width=220, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
         
         self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="🐶 Pet Sorter AI", font=ctk.CTkFont(size=22, weight="bold"))
@@ -48,47 +48,30 @@ class PetPhotoSorterApp(ctk.CTk):
         self.sep1 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
         self.sep1.grid(row=3, column=0, pady=5)
 
-        # 模式選擇 (單選) - 優先顯示
+        # 模式選擇 (單選)
         self.mode_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
         self.mode_frame.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
 
-        ctk.CTkLabel(self.mode_frame, text=t("lbl_mode_title"), font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5,2))
+        ctk.CTkLabel(self.mode_frame, text=t("lbl_mode_title"), font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5,4))
 
-        self.mode_var = tk.StringVar(value="normal")
+        self.mode_var = tk.StringVar(value="sort")
 
-        self.mode_normal = ctk.CTkRadioButton(self.mode_frame, text=t("lbl_mode_normal"),
-                                              variable=self.mode_var, value="normal")
-        self.mode_normal.pack(padx=15, pady=3, anchor="w")
+        def make_mode_card(parent, radio_value, title_key, desc_key):
+            card = ctk.CTkFrame(parent, fg_color=("gray88", "gray22"), corner_radius=8)
+            card.pack(fill="x", padx=5, pady=3)
+            rb = ctk.CTkRadioButton(card, text=t(title_key), variable=self.mode_var, value=radio_value,
+                                    font=ctk.CTkFont(size=13, weight="bold"))
+            rb.pack(anchor="w", padx=10, pady=(8, 2))
+            ctk.CTkLabel(card, text=t(desc_key), font=ctk.CTkFont(size=11),
+                         text_color="gray", justify="left", wraplength=170).pack(anchor="w", padx=30, pady=(0, 8))
+            return card
 
-        self.mode_preview = ctk.CTkRadioButton(self.mode_frame, text=t("lbl_mode_preview"),
-                                               variable=self.mode_var, value="preview")
-        self.mode_preview.pack(padx=15, pady=3, anchor="w")
+        make_mode_card(self.mode_frame, "sort",    "lbl_mode_sort",    "lbl_mode_sort_desc")
+        make_mode_card(self.mode_frame, "preview", "lbl_mode_preview", "lbl_mode_preview_desc")
+        deep_card = make_mode_card(self.mode_frame, "deep", "lbl_mode_deep", "lbl_mode_deep_desc")
 
-        # 綁定模式切換事件
+
         self.mode_var.trace_add("write", self.on_mode_change)
-
-        # 影片深度分析選項（在模式下方）
-        self.surveillance_switch = ctk.CTkSwitch(self.mode_frame, text=t("lbl_surveillance_feature"), command=self.toggle_surveillance_ui)
-        self.surveillance_switch.pack(padx=15, pady=(8,3), anchor="w")
-
-        # 監視器分析子選項（縮排顯示）
-        self.surveillance_detail_frame = ctk.CTkFrame(self.mode_frame, fg_color="transparent")
-        self.surveillance_detail_frame.pack(padx=25, pady=(0,5), anchor="w", fill="x")
-
-        self.analysis_output_var = tk.StringVar(value="output_dir")
-
-        self.analysis_to_output = ctk.CTkRadioButton(self.surveillance_detail_frame, text=t("lbl_analysis_to_output"),
-                                                     variable=self.analysis_output_var, value="output_dir",
-                                                     font=ctk.CTkFont(size=11))
-        self.analysis_to_output.pack(pady=1, anchor="w")
-
-        self.analysis_to_source = ctk.CTkRadioButton(self.surveillance_detail_frame, text=t("lbl_analysis_to_source"),
-                                                     variable=self.analysis_output_var, value="source_dir",
-                                                     font=ctk.CTkFont(size=11))
-        self.analysis_to_source.pack(pady=1, anchor="w")
-
-        # 初始隱藏子選項
-        self.surveillance_detail_frame.pack_forget()
 
         self.sep2 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
         self.sep2.grid(row=5, column=0, pady=5)
@@ -126,6 +109,7 @@ class PetPhotoSorterApp(ctk.CTk):
         self.action_switch = ctk.CTkSwitch(self.switches_frame, text="CLIP Action")
         self.action_switch.pack(padx=15, pady=3, anchor="w")
         self.action_switch.select()
+
 
         self.sep4 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
         self.sep4.grid(row=9, column=0, pady=5)
@@ -309,34 +293,36 @@ class PetPhotoSorterApp(ctk.CTk):
             messagebox.showerror("Error", t("msg_save_fail"))
 
     def on_mode_change(self, *args):
-        """當模式切換時，動態調整 UI 狀態"""
         mode = self.mode_var.get()
+        placeholder = "預覽模式不需要輸出資料夾"
 
-        # 預覽模式下禁用輸出資料夾相關欄位
         if mode == "preview":
+            current = self.out_entry.get()
+            if current and current != placeholder:
+                self._saved_output_path = current
+            self.out_entry.configure(state="normal")
+            self.out_entry.delete(0, tk.END)
+            self.out_entry.insert(0, placeholder)
             self.out_entry.configure(state="disabled", fg_color=("gray85", "gray25"))
             self.out_browse_btn.configure(state="disabled", fg_color="gray")
-            # 儲存原始路徑（如果不是提示文字）
-            current_path = self.out_entry.get()
-            if current_path and current_path != "預覽模式不需要輸出資料夾":
-                self._saved_output_path = current_path
-            self.out_entry.delete(0, tk.END)
-            self.out_entry.insert(0, "預覽模式不需要輸出資料夾")
+            self.deep_detail_frame.pack_forget()
         else:
             self.out_entry.configure(state="normal", fg_color=("white", "gray14"))
             self.out_browse_btn.configure(state="normal", fg_color=("#3B8ED0", "#1F6AA5"))
-            # 恢復之前儲存的路徑
-            if self.out_entry.get() == "預覽模式不需要輸出資料夾":
+            current = self.out_entry.get()
+            if current in (placeholder, "深度分析報告輸出到來源同層"):
                 self.out_entry.delete(0, tk.END)
-                restored_path = getattr(self, "_saved_output_path", str(self.engine.output_dir))
-                self.out_entry.insert(0, restored_path)
-
-    def toggle_surveillance_ui(self):
-        """切換監視器分析子選項的顯示"""
-        if self.surveillance_switch.get():
-            self.surveillance_detail_frame.pack(padx=25, pady=(0,5), anchor="w", fill="x")
-        else:
-            self.surveillance_detail_frame.pack_forget()
+                self.out_entry.insert(0, getattr(self, "_saved_output_path", str(self.engine.output_dir)))
+            if mode == "deep":
+                current = self.out_entry.get()
+                placeholder = "預覽模式不需要輸出資料夾"
+                if current and current != placeholder:
+                    self._saved_output_path = current
+                self.out_entry.configure(state="normal")
+                self.out_entry.delete(0, tk.END)
+                self.out_entry.insert(0, "深度分析報告輸出到來源同層")
+                self.out_entry.configure(state="disabled", fg_color=("gray85", "gray25"))
+                self.out_browse_btn.configure(state="disabled", fg_color="gray")
 
     def toggle_ollama_ui(self):
         self.ollama_frame.configure(border_width=2 if self.ollama_switch.get() else 0)
@@ -354,17 +340,19 @@ class PetPhotoSorterApp(ctk.CTk):
         ctk.set_appearance_mode(new_appearance_mode)
 
     def start_worker(self):
-        # 根據單選模式設定引擎狀態
         mode = self.mode_var.get()
         self.engine.test_mode = (mode == "preview")
+        self.engine.surveillance_mode = (mode == "deep")
+        self.engine.copy_files = (mode == "sort")
+        self.engine.analysis_output_location = "source_dir"
 
-        # 監視器分析功能與輸出位置
-        self.engine.surveillance_mode = self.surveillance_switch.get()
-        self.engine.analysis_output_location = self.analysis_output_var.get()
+        # 尋找並分類模式會移動檔案，先確認
+        if mode == "sort":
+            if not messagebox.askyesno("確認", "尋找並分類模式會將狗狗照片\n從來源資料夾移動到輸出資料夾。\n\n確定要繼續嗎？"):
+                return
 
         try:
             self.engine.source_dir = Path(self.src_entry.get())
-            # 預覽模式下不需要輸出資料夾
             if mode != "preview":
                 self.engine.output_dir = Path(self.out_entry.get())
         except Exception as e:

@@ -34,10 +34,13 @@
     "msg_save_success": "Settings saved successfully",
     "msg_save_fail": "Failed to save settings",
     "lbl_mode_title": "🎯 Operation Mode",
-    "lbl_mode_normal": "📸 Normal Mode (Move & Organize)",
-    "lbl_mode_preview": "👁️ Preview Mode (Analyze Only)",
-    "lbl_ai_features": "🤖 AI Features",
-    "lbl_surveillance_feature": "📹 Deep Video Analysis (Surveillance)",
-    "lbl_analysis_to_output": "Output to separate folder",
-    "lbl_analysis_to_source": "Output to source directory"
+    "lbl_mode_sort": "📸 Find & Classify",
+    "lbl_mode_sort_desc": "Scan source folder, find dog photos\nand move them to the output folder",
+    "lbl_mode_preview": "👁️ Preview Find & Classify",
+    "lbl_mode_preview_desc": "Analyze photos without moving any files\nUse this to check results first",
+    "lbl_mode_deep": "📹 Deep Analysis",
+    "lbl_mode_deep_desc": "Frame-by-frame analysis of timelapse/surveillance videos\nGenerates reports, no files moved",
+    "lbl_analysis_to_output": "Reports to separate folder",
+    "lbl_analysis_to_source": "Reports next to source files",
+    "lbl_ai_features": "🤖 AI Features"
 }
