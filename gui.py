@@ -11,7 +11,6 @@ import json
 import platform
 from i18n import t
 
-# 設定外觀
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
@@ -22,17 +21,15 @@ class PetPhotoSorterApp(ctk.CTk):
         self.title(t("app_title"))
         self.geometry("1100x800")
 
-        # 初始化引擎
         self.engine = SorterEngine(
             progress_callback=self.update_progress,
             log_callback=self.append_log
         )
 
-        # 建立 UI 佈局
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # --- 側邊欄 (Sidebar) ---
+        # --- 側邊欄 ---
         self.sidebar_frame = ctk.CTkScrollableFrame(self, width=220, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
         
@@ -48,11 +45,11 @@ class PetPhotoSorterApp(ctk.CTk):
         self.sep1 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
         self.sep1.grid(row=3, column=0, pady=5)
 
-        # 模式選擇 (單選)
+        # 模式選擇
         self.mode_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
         self.mode_frame.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
 
-        ctk.CTkLabel(self.mode_frame, text=t("lbl_mode_title"), font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5,4))
+        ctk.CTkLabel(self.mode_frame, text=t("lbl_mode_title"), font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5, 4))
 
         self.mode_var = tk.StringVar(value="sort")
 
@@ -68,15 +65,13 @@ class PetPhotoSorterApp(ctk.CTk):
 
         make_mode_card(self.mode_frame, "sort",    "lbl_mode_sort",    "lbl_mode_sort_desc")
         make_mode_card(self.mode_frame, "preview", "lbl_mode_preview", "lbl_mode_preview_desc")
-        deep_card = make_mode_card(self.mode_frame, "deep", "lbl_mode_deep", "lbl_mode_deep_desc")
-
 
         self.mode_var.trace_add("write", self.on_mode_change)
 
         self.sep2 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
         self.sep2.grid(row=5, column=0, pady=5)
 
-        # 路徑設定 (在模式選擇之後)
+        # 路徑設定
         self.path_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
         self.path_frame.grid(row=6, column=0, padx=10, pady=5, sticky="ew")
 
@@ -100,7 +95,7 @@ class PetPhotoSorterApp(ctk.CTk):
         self.switches_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
         self.switches_frame.grid(row=8, column=0, padx=10, pady=5, sticky="ew")
 
-        ctk.CTkLabel(self.switches_frame, text=t("lbl_ai_features"), font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5,2))
+        ctk.CTkLabel(self.switches_frame, text=t("lbl_ai_features"), font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5, 2))
 
         self.ollama_switch = ctk.CTkSwitch(self.switches_frame, text="Ollama AI", command=self.toggle_ollama_ui)
         self.ollama_switch.pack(padx=15, pady=3, anchor="w")
@@ -110,6 +105,17 @@ class PetPhotoSorterApp(ctk.CTk):
         self.action_switch.pack(padx=15, pady=3, anchor="w")
         self.action_switch.select()
 
+        # 媒體類型下拉選單
+        media_row = ctk.CTkFrame(self.switches_frame, fg_color="transparent")
+        media_row.pack(fill="x", padx=10, pady=(6, 3))
+        ctk.CTkLabel(media_row, text=t("lbl_media_type"), font=ctk.CTkFont(size=12)).pack(side="left", padx=5)
+        self.media_type_menu = ctk.CTkOptionMenu(
+            media_row,
+            values=[t("lbl_media_both"), t("lbl_media_images"), t("lbl_media_videos")],
+            width=115
+        )
+        self.media_type_menu.pack(side="left", padx=5)
+        self.media_type_menu.set(t("lbl_media_both"))
 
         self.sep4 = ctk.CTkLabel(self.sidebar_frame, text="—" * 15, text_color="gray")
         self.sep4.grid(row=9, column=0, pady=5)
@@ -117,18 +123,17 @@ class PetPhotoSorterApp(ctk.CTk):
         self.save_button = ctk.CTkButton(self.sidebar_frame, text=t("btn_save"), command=self.save_settings, fg_color="#2ECC71", hover_color="#27AE60")
         self.save_button.grid(row=10, column=0, padx=20, pady=10)
 
-        # 主題切換
         self.appearance_mode_optionemenu = ctk.CTkOptionMenu(self.sidebar_frame, values=["Light", "Dark", "System"], command=self.change_appearance_mode)
         self.appearance_mode_optionemenu.grid(row=11, column=0, padx=20, pady=(10, 20))
         self.appearance_mode_optionemenu.set("System")
 
-        # --- 主面板 (Main Panel) ---
+        # --- 主面板 ---
         self.tabview = ctk.CTkTabview(self)
         self.tabview.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
         self.tabview.add(t("tab_status"))
         self.tabview.add(t("tab_ai"))
 
-        # --- 頁籤 1: 執行狀態 ---
+        # 頁簺 1: 執行狀態
         self.status_tab = self.tabview.tab(t("tab_status"))
         self.status_tab.grid_columnconfigure(0, weight=1)
 
@@ -139,7 +144,6 @@ class PetPhotoSorterApp(ctk.CTk):
         self.progressbar.grid(row=1, column=0, padx=20, pady=(10, 20), sticky="ew")
         self.progressbar.set(0)
 
-        # 統計儀表板
         self.stats_frame = ctk.CTkFrame(self.status_tab)
         self.stats_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
         self.stats_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
@@ -153,13 +157,11 @@ class PetPhotoSorterApp(ctk.CTk):
         self.stat_dups = ctk.CTkLabel(self.stats_frame, text=f"{t('lbl_stats_dups')} 0", font=ctk.CTkFont(size=13))
         self.stat_dups.grid(row=0, column=3, padx=10, pady=10)
 
-        # 比例視覺化
         self.ratio_frame = ctk.CTkFrame(self.status_tab, height=30)
         self.ratio_frame.grid(row=3, column=0, padx=20, pady=5, sticky="ew")
         self.ratio_label = ctk.CTkLabel(self.ratio_frame, text=t("lbl_ratio"), font=ctk.CTkFont(size=12))
         self.ratio_label.pack(pady=5)
 
-        # 結果操作按鈕
         self.results_action_frame = ctk.CTkFrame(self.status_tab, fg_color="transparent")
         self.results_action_frame.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
         self.results_action_frame.grid_columnconfigure((0, 1), weight=1)
@@ -174,7 +176,7 @@ class PetPhotoSorterApp(ctk.CTk):
         self.log_textbox.grid(row=5, column=0, padx=20, pady=10, sticky="nsew")
         self.status_tab.grid_rowconfigure(5, weight=1)
 
-        # --- 頁籤 2: AI 設定 ---
+        # 頁簺 2: AI 設定
         self.ai_tab = self.tabview.tab(t("tab_ai"))
         
         self.ollama_frame = ctk.CTkFrame(self.ai_tab)
@@ -209,7 +211,6 @@ class PetPhotoSorterApp(ctk.CTk):
         self.high_score_slider.set(self.engine.aesthetic_high)
         self.high_score_slider.pack(padx=40, pady=10, fill="x")
 
-        # 狗狗名稱設定 (新增特徵輸入)
         self.dog_label_frame = ctk.CTkFrame(self.ai_tab)
         self.dog_label_frame.pack(fill="x", padx=20, pady=10)
         ctk.CTkLabel(self.dog_label_frame, text=t("lbl_dog_setting"), font=ctk.CTkFont(weight="bold", size=16)).pack(pady=10)
@@ -220,7 +221,6 @@ class PetPhotoSorterApp(ctk.CTk):
         self.dog1_name_entry = ctk.CTkEntry(dog_row1, width=100)
         self.dog1_name_entry.pack(side="left", padx=5)
         self.dog1_name_entry.insert(0, self.engine.dog1_name)
-
         ctk.CTkLabel(dog_row1, text=t("lbl_dog1_feat")).pack(side="left", padx=15)
         self.dog1_feat_entry = ctk.CTkEntry(dog_row1, width=200)
         self.dog1_feat_entry.pack(side="left", padx=5)
@@ -232,13 +232,11 @@ class PetPhotoSorterApp(ctk.CTk):
         self.dog2_name_entry = ctk.CTkEntry(dog_row2, width=100)
         self.dog2_name_entry.pack(side="left", padx=5)
         self.dog2_name_entry.insert(0, self.engine.dog2_name)
-
         ctk.CTkLabel(dog_row2, text=t("lbl_dog2_feat")).pack(side="left", padx=15)
         self.dog2_feat_entry = ctk.CTkEntry(dog_row2, width=200)
         self.dog2_feat_entry.pack(side="left", padx=5)
         self.dog2_feat_entry.insert(0, self.engine.dog2_feature)
 
-        # 效能設定 (原路徑頁籤內容)
         perf_frame = ctk.CTkFrame(self.ai_tab)
         perf_frame.pack(fill="x", padx=20, pady=10)
         ctk.CTkLabel(perf_frame, text=t("lbl_perf_setting"), font=ctk.CTkFont(weight="bold", size=16)).pack(pady=10)
@@ -249,6 +247,14 @@ class PetPhotoSorterApp(ctk.CTk):
         self.batch_entry = ctk.CTkEntry(batch_row, width=80)
         self.batch_entry.pack(side="left", padx=10)
         self.batch_entry.insert(0, str(self.engine.batch_size))
+
+    def _get_media_type_value(self):
+        mapping = {
+            t("lbl_media_both"): "both",
+            t("lbl_media_images"): "images",
+            t("lbl_media_videos"): "videos"
+        }
+        return mapping.get(self.media_type_menu.get(), "both")
 
     def test_ollama_connection(self):
         url = self.ollama_url_entry.get().strip("/")
@@ -277,14 +283,12 @@ class PetPhotoSorterApp(ctk.CTk):
         self.engine.enable_ollama = self.ollama_switch.get()
         self.engine.ollama_url = self.ollama_url_entry.get().strip("/")
         self.engine.ollama_model = self.ollama_model_entry.get()
-        
-        # 儲存特徵
         self.engine.dog1_name = self.dog1_name_entry.get()
         self.engine.dog1_feature = self.dog1_feat_entry.get()
         self.engine.dog2_name = self.dog2_name_entry.get()
         self.engine.dog2_feature = self.dog2_feat_entry.get()
-        
         self.engine.aesthetic_high = self.high_score_slider.get()
+        self.engine.media_type = self._get_media_type_value()
         try: self.engine.batch_size = int(self.batch_entry.get())
         except: pass
         if self.engine.save_config_to_file():
@@ -305,24 +309,13 @@ class PetPhotoSorterApp(ctk.CTk):
             self.out_entry.insert(0, placeholder)
             self.out_entry.configure(state="disabled", fg_color=("gray85", "gray25"))
             self.out_browse_btn.configure(state="disabled", fg_color="gray")
-            self.deep_detail_frame.pack_forget()
         else:
             self.out_entry.configure(state="normal", fg_color=("white", "gray14"))
             self.out_browse_btn.configure(state="normal", fg_color=("#3B8ED0", "#1F6AA5"))
             current = self.out_entry.get()
-            if current in (placeholder, "深度分析報告輸出到來源同層"):
+            if current == placeholder:
                 self.out_entry.delete(0, tk.END)
                 self.out_entry.insert(0, getattr(self, "_saved_output_path", str(self.engine.output_dir)))
-            if mode == "deep":
-                current = self.out_entry.get()
-                placeholder = "預覽模式不需要輸出資料夾"
-                if current and current != placeholder:
-                    self._saved_output_path = current
-                self.out_entry.configure(state="normal")
-                self.out_entry.delete(0, tk.END)
-                self.out_entry.insert(0, "深度分析報告輸出到來源同層")
-                self.out_entry.configure(state="disabled", fg_color=("gray85", "gray25"))
-                self.out_browse_btn.configure(state="disabled", fg_color="gray")
 
     def toggle_ollama_ui(self):
         self.ollama_frame.configure(border_width=2 if self.ollama_switch.get() else 0)
@@ -342,11 +335,10 @@ class PetPhotoSorterApp(ctk.CTk):
     def start_worker(self):
         mode = self.mode_var.get()
         self.engine.test_mode = (mode == "preview")
-        self.engine.surveillance_mode = (mode == "deep")
         self.engine.copy_files = (mode == "sort")
-        self.engine.analysis_output_location = "source_dir"
+        # preview 模式僅處理圖片；其餘依照下拉選單
+        self.engine.media_type = "images" if mode == "preview" else self._get_media_type_value()
 
-        # 尋找並分類模式會移動檔案，先確認
         if mode == "sort":
             if not messagebox.askyesno("確認", "尋找並分類模式會將狗狗照片\n從來源資料夾移動到輸出資料夾。\n\n確定要繼續嗎？"):
                 return
@@ -368,7 +360,7 @@ class PetPhotoSorterApp(ctk.CTk):
 
     def stop_worker(self):
         self.engine.stop_processing()
-        self.stop_button.configure(state="disabled") # 點擊後禁用，避免重複點擊
+        self.stop_button.configure(state="disabled")
 
     def update_progress(self, current, total, message):
         self.after(0, self._update_progress_ui, current, total, message)
@@ -389,11 +381,10 @@ class PetPhotoSorterApp(ctk.CTk):
             ratio_text = t("lbl_ratio").split(":")[0] + ": " + " | ".join([f"{n}: {c} ({c/total_dogs:.1%})" for n, c in counts.items()])
             self.ratio_label.configure(text=ratio_text)
 
-        # 只要引擎不再運行，就恢復按鈕狀態，而不僅僅依賴 progress 數值
         if not self.engine.is_running:
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
-            if current >= total: # 真的完成才開啟資料夾按鈕
+            if current >= total:
                 self.open_out_btn.configure(state="normal", fg_color="#3498DB")
                 self.open_obsidian_btn.configure(state="normal", fg_color="#9B59B6")
 
