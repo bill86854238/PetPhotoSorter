@@ -37,10 +37,10 @@
     "lbl_mode_sort": "📸 Find & Classify",
     "lbl_mode_sort_desc": "Scan source folder, find dog photos\nand move them to the output folder",
     "lbl_mode_preview": "👁️ Preview Find & Classify",
-    "lbl_mode_preview_desc": "Analyze photos without moving any files\nUse this to check results first",
-    "lbl_mode_deep": "📹 Deep Analysis",
-    "lbl_mode_deep_desc": "Frame-by-frame analysis of timelapse/surveillance videos\nGenerates reports, no files moved",
-    "lbl_analysis_to_output": "Reports to separate folder",
-    "lbl_analysis_to_source": "Reports next to source files",
-    "lbl_ai_features": "🤖 AI Features"
+    "lbl_mode_preview_desc": "Analyze photos only, no files moved\nUse this to check results first",
+    "lbl_ai_features": "🤖 AI Features",
+    "lbl_media_type": "Media Type:",
+    "lbl_media_both": "Images & Videos",
+    "lbl_media_images": "Images Only",
+    "lbl_media_videos": "Videos Only"
 }

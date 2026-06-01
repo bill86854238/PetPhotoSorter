@@ -37,10 +37,10 @@
     "lbl_mode_sort": "📸 尋找並分類",
     "lbl_mode_sort_desc": "掃描來源資料夾，找出狗狗照片\n並移動到輸出資料夾整理",
     "lbl_mode_preview": "👁️ 預覽尋找分類",
-    "lbl_mode_preview_desc": "分析照片但不移動任何檔案\n用於確認分析結果",
-    "lbl_mode_deep": "📹 深度分析",
-    "lbl_mode_deep_desc": "逐幀分析縮時／監視器影片\n產生分析報告，不移動任何檔案",
-    "lbl_analysis_to_output": "報告輸出到獨立資料夾",
-    "lbl_analysis_to_source": "報告輸出到來源同層",
-    "lbl_ai_features": "🤖 AI 功能"
+    "lbl_mode_preview_desc": "僅分析照片，不移動任何檔案\n用於確認分析結果",
+    "lbl_ai_features": "🤖 AI 功能",
+    "lbl_media_type": "媒體類型:",
+    "lbl_media_both": "圖片與影片",
+    "lbl_media_images": "僅圖片",
+    "lbl_media_videos": "僅影片"
 }
