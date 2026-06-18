@@ -16,7 +16,6 @@ import urllib.request
 import base64
 import io
 
-# 核心 AI 庫
 try:
     from ultralytics import YOLO
 except ImportError:
@@ -36,19 +35,17 @@ except ImportError:
 class SorterEngine:
     def __init__(self, config_path="config.json", progress_callback=None, log_callback=None):
         self.config_path = Path(config_path)
-        self.progress_callback = progress_callback  # (current, total, message)
-        self.log_callback = log_callback           # (message, level)
+        self.progress_callback = progress_callback
+        self.log_callback = log_callback
         self.is_running = False
         self.stop_requested = False
         
-        # 模型與狀態
         self.yolo_model = None
         self.clip_model = None
         self.clip_processor = None
         self.device = "cpu"
-        self.known_hashes = set() # 用於重複檢查
+        self.known_hashes = set()
         
-        # 統計數據 (供 GUI 使用)
         self.stats = {
             "processed": 0,
             "total": 0,
@@ -59,8 +56,8 @@ class SorterEngine:
             "duplicates": 0,
             "dog_counts": {},
             "daily_summary": {},
-            "folder_summary": {}, # 動作分類
-            "hierarchy_summary": {} # {"二季/成年期/奔跑": {"count": 5, "high": 2, "score": 4.5}}
+            "folder_summary": {},
+            "hierarchy_summary": {}
         }
         
         self.load_config()
@@ -83,7 +80,6 @@ class SorterEngine:
         settings = self._config_data.get("settings", {})
         self.nas_ip = self._config_data.get("nas_ip", "192.168.1.100")
         
-        # 基礎 AI 設定
         self.batch_size = settings.get("batch_size", 16)
         self.device_pref = settings.get("device", "mps" if platform.system() == "Darwin" else "cpu")
         self.aesthetic_min = settings.get("aesthetic_score_min", 0.2)
@@ -92,7 +88,6 @@ class SorterEngine:
         self.ollama_url = settings.get("ollama_url", "http://localhost:11434")
         self.ollama_model = settings.get("ollama_model", "moondream")
         
-        # 狗狗分類設定
         self.dog1_name = settings.get("dog1_name", "暗色狗狗")
         self.dog1_feature = settings.get("dog1_feature", "dark fur")
         self.dog2_name = settings.get("dog2_name", "亮色狗狗")
@@ -100,13 +95,12 @@ class SorterEngine:
         self.brightness_threshold = settings.get("brightness_threshold", 185)
         self.dog_birth_date = datetime(2022, 11, 23)
         
-        # 功能開關
-        self.enable_video = settings.get("enable_video", True)
+        # "both", "images", "videos"
+        self.media_type = settings.get("media_type", "both")
         self.enable_duplicate_check = settings.get("enable_duplicate_check", True)
         self.enable_action_classify = settings.get("enable_action_classify", True)
-        self.copy_files = settings.get("copy_files", False)  # 預設不複製，只分析
+        self.copy_files = settings.get("copy_files", False)
 
-        # 決定路徑 (GUI 啟動時會被覆蓋)
         if platform.system() == "Darwin":
             mac_cfg = self._config_data.get("mac", {})
             self.source_dir = Path(mac_cfg.get("source_dir", "/Volumes/home/Photos/MobileBackup"))
@@ -115,8 +109,6 @@ class SorterEngine:
             win_cfg = self._config_data.get("windows", {})
             src_tmpl = win_cfg.get("source_dir", r"\\{ip}\home\Photos\MobileBackup")
             out_tmpl = win_cfg.get("output_dir", r"\\{ip}\photo\照片-Pet_分類")
-            
-            # 移除 .absolute() 避免觸發底層網路檢查，僅做字串替換
             self.source_dir = Path(src_tmpl.replace("{ip}", self.nas_ip))
             self.output_dir = Path(out_tmpl.replace("{ip}", self.nas_ip))
 
@@ -130,7 +122,7 @@ class SorterEngine:
             "enable_ollama": self.enable_ollama,
             "ollama_url": self.ollama_url,
             "ollama_model": self.ollama_model,
-            "enable_video": self.enable_video,
+            "media_type": self.media_type,
             "enable_duplicate_check": self.enable_duplicate_check,
             "enable_action_classify": self.enable_action_classify
         })
@@ -142,7 +134,6 @@ class SorterEngine:
 
     def initialize_models(self):
         if self.yolo_model is not None: return True
-        
         if YOLO is None: return False
         self.device = self.device_pref
         if self.device == "mps" and not torch.backends.mps.is_available(): self.device = "cpu"
@@ -159,9 +150,7 @@ class SorterEngine:
             self.log(f"❌ 模型初始化失敗: {e}", logging.ERROR)
             return False
 
-    # --- 演算法工具 ---
     def calculate_ahash(self, img_bgr):
-        """計算感知雜湊用於重複檢查"""
         try:
             resized = cv2.resize(img_bgr, (8, 8), interpolation=cv2.INTER_AREA)
             gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
@@ -176,7 +165,7 @@ class SorterEngine:
         if target_type == "dog":
             actions = ["sleeping", "playing with a toy", "lying down", "standing or walking", "sitting"]
             labels = ["睡覺", "玩玩具", "趴著", "站立/走動", "坐下"]
-        else: # person
+        else:
             actions = ["walking", "sitting", "interacting with a dog", "standing"]
             labels = ["走動", "坐下", "與狗互動", "站立"]
             
@@ -188,140 +177,12 @@ class SorterEngine:
             return labels[np.argmax(probs)]
         except: return "一般"
 
-    # --- 影片處理 (監視器模式) ---
-    def analyze_video_rich(self, video_path, assets_dir=None):
-        """
-        針對監視器影片進行豐富分析：
-        1. 抽樣偵測人與狗
-        2. 判斷細部動作
-        3. 產生活動熱點圖 (Heatmap)
-        4. 擷取關鍵畫面縮圖
-        """
-        cap = cv2.VideoCapture(str(video_path))
-        if not cap.isOpened(): return {"success": False, "error": "無法讀取"}
-        
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        # 建立熱圖累積矩陣
-        heatmap_acc = np.zeros((height, width), dtype=np.float32)
-        background_frame = None
-        
-        # 監視器影片通常較短，每 1 秒抽一幀
-        step = max(1, int(fps)) if fps > 0 else 30
-        
-        detected_events = []
-        last_label = ""
-        event_count = 0
-        
-        for fno in range(0, total_frames, step):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, fno)
-            ret, frame = cap.read()
-            if not ret: break
-            
-            if background_frame is None:
-                background_frame = frame.copy()
-            
-            res = self.yolo_model(frame, verbose=False)
-            boxes = res[0].boxes
-            
-            current_frame_targets = []
-            for box in boxes:
-                cls_id = int(box.cls[0])
-                if cls_id not in [0, 16]: continue # 0:人, 16:狗
-                
-                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                target_type = "dog" if cls_id == 16 else "person"
-                
-                # 紀錄狗狗熱點 (以中心點累積)
-                if target_type == "dog":
-                    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-                    # 在座標點周圍增加權重
-                    cv2.circle(heatmap_acc, (cx, cy), 25, 1, -1)
-                
-                crop = frame[max(0, y1-10):y2+10, max(0, x1-10):x2+10]
-                if crop.size == 0: continue
-                
-                pil_crop = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
-                action_label = self.classify_action(pil_crop, target_type)
-                current_frame_targets.append(f"{'狗' if target_type=='dog' else '人'}({action_label})")
-            
-            if current_frame_targets:
-                timestamp_sec = fno / fps if fps > 0 else 0
-                time_str = f"{int(timestamp_sec // 60):02d}:{int(timestamp_sec % 60):02d}"
-                event_label = " + ".join(sorted(list(set(current_frame_targets))))
-                
-                # 只有當狀態改變時才記錄，避免冗餘
-                if event_label != last_label:
-                    event_count += 1
-                    img_name = f"event_{event_count}.jpg"
-                    
-                    if assets_dir:
-                        # 畫上偵測框標註，增加日誌可讀性
-                        annotated_frame = frame.copy()
-                        for box in boxes:
-                            bx1, by1, bx2, by2 = map(int, box.xyxy[0].tolist())
-                            b_cls = int(box.cls[0])
-                            if b_cls in [0, 16]:
-                                color = (0, 255, 0) if b_cls == 16 else (255, 0, 0) # 綠色是狗，藍色是人
-                                cv2.rectangle(annotated_frame, (bx1, by1), (bx2, by2), color, 2)
-                        
-                        cv2.imwrite(str(assets_dir / img_name), annotated_frame)
-                    
-                    detected_events.append({
-                        "time": time_str, 
-                        "event": event_label,
-                        "image": img_name
-                    })
-                    last_label = event_label
-                    
-        # 生成最終熱力圖
-        heatmap_rel_path = None
-        if background_frame is not None and np.any(heatmap_acc > 0):
-            heatmap_blur = cv2.GaussianBlur(heatmap_acc, (51, 51), 0)
-            heatmap_norm = cv2.normalize(heatmap_blur, None, 0, 255, cv2.NORM_MINMAX)
-            heatmap_norm = np.uint8(heatmap_norm)
-            heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
-            
-            # 與背景疊加
-            blended = cv2.addWeighted(background_frame, 0.6, heatmap_color, 0.4, 0)
-            
-            # --- 新增文字說明 ---
-            # 1. 在上方加入一個半透明的標題列
-            overlay = blended.copy()
-            cv2.rectangle(overlay, (0, 0), (width, 60), (0, 0, 0), -1)
-            cv2.addWeighted(overlay, 0.5, blended, 0.5, 0, blended)
-            
-            font = cv2.FONT_HERSHEY_DUPLEX
-            title_text = "Dog Activity Heatmap (狗狗活動熱點統計)"
-            cv2.putText(blended, title_text, (20, 40), font, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
-            
-            # 2. 加入顏色圖例說明 (右下角)
-            cv2.putText(blended, "Red: High Activity", (width - 250, height - 50), font, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
-            cv2.putText(blended, "Blue: Low Activity", (width - 250, height - 20), font, 0.7, (255, 0, 0), 2, cv2.LINE_AA)
-            
-            if assets_dir:
-                heatmap_rel_path = "heatmap.jpg"
-                cv2.imwrite(str(assets_dir / heatmap_rel_path), blended)
-                
-        cap.release()
-        return {
-            "success": True,
-            "events": detected_events,
-            "heatmap": heatmap_rel_path,
-            "summary": " + ".join(list(set([e['event'] for e in detected_events]))) if detected_events else "無偵測到目標"
-        }
-
-    # --- 影片處理 (原本的簡單判斷，保持相容) ---
     def analyze_video(self, video_path):
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened(): return False, "無法讀取"
         
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        # 每 2 秒抽一幀
         step = int(fps * 2) if fps > 0 else 30
         
         dog_detected = False
@@ -329,7 +190,6 @@ class SorterEngine:
             cap.set(cv2.CAP_PROP_POS_FRAMES, fno)
             ret, frame = cap.read()
             if not ret: break
-            
             res = self.yolo_model(frame, verbose=False)
             if len(res[0].boxes) > 0:
                 dog_detected = True
@@ -337,12 +197,10 @@ class SorterEngine:
         cap.release()
         return dog_detected, "動作_一般"
 
-    # --- 核心流程 ---
     def process_image(self, img_bgr, yolo_result, file_path):
         if len(yolo_result.boxes) == 0: return
         self.stats["dogs_found"] += 1
 
-        # 重複檢查
         if self.enable_duplicate_check:
             h = self.calculate_ahash(img_bgr)
             if h in self.known_hashes:
@@ -350,7 +208,6 @@ class SorterEngine:
                 return
             self.known_hashes.add(h)
 
-        # 分類與評分
         photo_dt = datetime.fromtimestamp(os.path.getmtime(file_path))
         age_str = self.classify_age(photo_dt)
 
@@ -361,24 +218,20 @@ class SorterEngine:
         score = self.calculate_aesthetic_score(pil_crop)
         action = self.classify_action(pil_crop)
         is_high = score >= self.aesthetic_high
-
-        # ID 判斷 (純 CLIP 動態特徵)
         dog_name = self.classify_dog_identity(pil_crop)
 
-        # 更新統計資訊
         date_key = photo_dt.strftime('%Y-%m-%d')
         if date_key not in self.stats["daily_summary"]:
             self.stats["daily_summary"][date_key] = {"count": 0, "high": 0}
         self.stats["daily_summary"][date_key]["count"] += 1
         if is_high: self.stats["daily_summary"][date_key]["high"] += 1
 
-        folder_key = action # 以動作作為主要資料夾分類摘要
+        folder_key = action
         if folder_key not in self.stats["folder_summary"]:
             self.stats["folder_summary"][folder_key] = {"count": 0, "score_sum": 0.0}
         self.stats["folder_summary"][folder_key]["count"] += 1
         self.stats["folder_summary"][folder_key]["score_sum"] += score
 
-        # 階層式摘要 (靈活維度)
         path_key = f"{dog_name}/{age_str}/{action}"
         if path_key not in self.stats["hierarchy_summary"]:
             self.stats["hierarchy_summary"][path_key] = {"count": 0, "high": 0, "score_sum": 0.0}
@@ -387,21 +240,17 @@ class SorterEngine:
         h["score_sum"] += score
         if is_high: h["high"] += 1
 
-        # 更新狗狗個別統計
         self.stats["dog_counts"][dog_name] = self.stats["dog_counts"].get(dog_name, 0) + 1
 
-        # 統計分數
         if is_high:
             self.stats["high_score"] += 1
         elif score < self.aesthetic_min:
             self.stats["low_score"] += 1
 
-        # 預設只記錄，不動檔案；需勾選「複製到輸出資料夾」才複製
         if getattr(self, "test_mode", False) or not self.copy_files:
             self.log(f"🐶 {file_path.name} | {dog_name} | {action} | 分數: {score:.2f}{'  ★精選' if is_high else ''}")
             return
 
-        # 複製模式
         if is_high:
             target_dir = self.output_dir / "精選照片" / dog_name / age_str / action
         elif score < self.aesthetic_min:
@@ -417,7 +266,6 @@ class SorterEngine:
         self.create_markdown_log(target_path, dog_name, age_str, score, caption)
 
     def classify_dog_identity(self, pil_img):
-        """利用 CLIP 辨識狗狗身份"""
         if not self.clip_model: return "狗狗"
         try:
             prompts = [
@@ -431,11 +279,8 @@ class SorterEngine:
         except: return "狗狗"
 
     def generate_html_dashboard(self):
-        """生成 HTML 視覺化儀表板"""
         try:
             output_file = self.output_dir / "dashboard.html"
-            
-            # 準備 JSON 數據
             daily_data = json.dumps(self.stats["daily_summary"])
             hierarchy_data = json.dumps(self.stats["hierarchy_summary"])
             dog_data = json.dumps(self.stats["dog_counts"])
@@ -506,7 +351,6 @@ class SorterEngine:
         const hierarchyData = {hierarchy_data};
         const dogData = {dog_data};
 
-        // 1. 狗狗比例圖
         new Chart(document.getElementById('dogChart'), {{
             type: 'doughnut',
             data: {{
@@ -518,7 +362,6 @@ class SorterEngine:
             }}
         }});
 
-        // 2. 趨勢圖
         const dates = Object.keys(dailyData).sort();
         new Chart(document.getElementById('dailyChart'), {{
             type: 'line',
@@ -531,7 +374,6 @@ class SorterEngine:
             }}
         }});
 
-        // 3. 階層式資料夾摘要表格
         const hierarchyBody = document.querySelector('#hierarchyTable tbody');
         for (const [path, info] of Object.entries(hierarchyData)) {{
             const avg = (info.score_sum / info.count).toFixed(2);
@@ -554,7 +396,6 @@ class SorterEngine:
             self.log(f"生成儀表板失敗: {e}", logging.ERROR)
 
     def _run_loop(self):
-        # 徹底重置統計數據
         self.stats = {
             "processed": 0, "total": 0, "high_score": 0, "low_score": 0,
             "dogs_found": 0, "videos": 0, "duplicates": 0,
@@ -563,20 +404,17 @@ class SorterEngine:
         self.known_hashes = set()
         
         try:
-            # 安全地取得路徑字串
             src_str = str(self.source_dir)
             test_mode = getattr(self, "test_mode", False)
+            media_type = getattr(self, "media_type", "both")
 
             if test_mode:
                 self.log(f"👁️ 啟動執行 [預覽模式 - 僅分析不移動檔案]，來源: {src_str}")
             else:
-                out_str = str(self.output_dir)
                 self.log(f"🔍 啟動執行，來源: {src_str}")
             
             if not self.initialize_models(): return
             
-            # 檢查來源目錄 (極其嚴密的保護，防止 WinError 53)
-            source_exists = False
             try:
                 source_exists = self.source_dir.exists()
             except Exception as e:
@@ -599,101 +437,84 @@ class SorterEngine:
 
             images = [p for p in all_paths if p.suffix.lower() in img_exts]
             videos = [p for p in all_paths if p.suffix.lower() in vid_exts]
-            
-            self.stats["total"] = len(images) + len(videos)
+
+            process_images = media_type in ("images", "both")
+            process_videos = media_type in ("videos", "both") and not test_mode
+
+            self.stats["total"] = (len(images) if process_images else 0) + (len(videos) if process_videos else 0)
             if self.stats["total"] == 0:
                 self.log("⚠️ 找不到可處理的檔案。", logging.WARNING)
                 return
 
-            self.log(f"🚀 開始任務: {len(images)} 張圖片, {len(videos)} 個影片")
-
-            # --- 以下處理邏輯中，只有在非測試模式且確定要寫入時才會碰觸輸出目錄 ---
-            surveillance = getattr(self, "surveillance_mode", False)
+            log_parts = []
+            if process_images: log_parts.append(f"{len(images)} 張圖片")
+            if process_videos: log_parts.append(f"{len(videos)} 個影片")
+            self.log(f"🚀 開始任務: {', '.join(log_parts)}")
 
             # 處理圖片
-            for i in range(0, len(images), self.batch_size):
-                if self.stop_requested: break
-                batch = images[i : i + self.batch_size]
-                imgs_bgr, valid_p = [], []
-                for p in batch:
-                    try:
-                        data = np.fromfile(str(p), dtype=np.uint8)
-                        img = cv2.imdecode(data, cv2.IMREAD_COLOR)
-                        if img is not None:
-                            imgs_bgr.append(img)
-                            valid_p.append(p)
-                    except: continue
-                
-                if imgs_bgr:
-                    results = self.yolo_model(imgs_bgr, verbose=False)
-                    for j, res in enumerate(results):
-                        self.process_image(imgs_bgr[j], res, valid_p[j])
-                        self.stats["processed"] += 1
-                        if self.progress_callback:
-                            self.progress_callback(self.stats["processed"], self.stats["total"], f"分析中: {valid_p[j].name}")
+            if process_images:
+                for i in range(0, len(images), self.batch_size):
+                    if self.stop_requested: break
+                    batch = images[i : i + self.batch_size]
+                    imgs_bgr, valid_p = [], []
+                    for p in batch:
+                        try:
+                            data = np.fromfile(str(p), dtype=np.uint8)
+                            img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+                            if img is not None:
+                                imgs_bgr.append(img)
+                                valid_p.append(p)
+                        except: continue
+                    
+                    if imgs_bgr:
+                        results = self.yolo_model(imgs_bgr, verbose=False)
+                        for j, res in enumerate(results):
+                            self.process_image(imgs_bgr[j], res, valid_p[j])
+                            self.stats["processed"] += 1
+                            if self.progress_callback:
+                                self.progress_callback(self.stats["processed"], self.stats["total"], f"分析中: {valid_p[j].name}")
 
             # 處理影片
-            if self.enable_video:
+            if process_videos:
                 for v in videos:
                     if self.stop_requested: break
-                    
-                    if surveillance:
-                        self.log(f"📹 深度分析影片: {v.name}")
 
-                        assets_dir = None
-                        md_path = None
+                    has_dog, _ = self.analyze_video(v)
+                    if has_dog:
+                        self.stats["videos"] += 1
+                        age_str = self.classify_age(datetime.fromtimestamp(v.stat().st_mtime))
 
-                        # 決定輸出位置
-                        output_location = getattr(self, "analysis_output_location", "output_dir")
-
-                        if not test_mode:
+                        # 推測身份與動作（僅記錄，不影響資料夾路徑）
+                        identity, action = "狗狗", "一般"
+                        if self.clip_model:
                             try:
-                                assets_rel_dir = f"{v.stem}_assets"
+                                cap = cv2.VideoCapture(str(v))
+                                total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                cap.set(cv2.CAP_PROP_POS_FRAMES, total_f // 2)
+                                ret, frame = cap.read()
+                                cap.release()
+                                if ret:
+                                    res = self.yolo_model(frame, verbose=False)
+                                    if len(res[0].boxes) > 0:
+                                        box = res[0].boxes[0]
+                                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                                        crop = frame[max(0, y1-10):y2+10, max(0, x1-10):x2+10]
+                                        if crop.size > 0:
+                                            pil_c = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+                                            identity = self.classify_dog_identity(pil_c)
+                                            action = self.classify_action(pil_c)
+                            except Exception: pass
 
-                                if output_location == "source_dir":
-                                    # 輸出到來源同層
-                                    assets_dir = v.parent / assets_rel_dir
-                                    md_path = v.parent / f"{v.stem}_analysis.md"
-                                else:
-                                    # 輸出到獨立資料夾
-                                    assets_dir = self.output_dir / "監視日誌" / assets_rel_dir
-                                    md_path = self.output_dir / "監視日誌" / f"{v.stem}.md"
+                        self.log(f"📹 {v.name} | {age_str} | 推測: {identity} | 動作: {action}")
 
-                                assets_dir.mkdir(parents=True, exist_ok=True)
+                        if self.copy_files:
+                            try:
+                                target = self.output_dir / "影片" / age_str
+                                target.mkdir(parents=True, exist_ok=True)
+                                shutil.copy2(v, target / v.name)
                             except Exception as e:
-                                self.log(f"⚠️ 無法寫入輸出路徑: {e}，將僅在日誌顯示結果", logging.WARNING)
-                                assets_dir = None
-                                md_path = None
+                                self.log(f"⚠️ 影片複製失敗: {e}", logging.WARNING)
 
-                        report = self.analyze_video_rich(v, assets_dir=assets_dir)
-
-                        if report["success"] and report["events"]:
-                            self.stats["videos"] += 1
-                            if not test_mode and assets_dir and md_path:
-                                try:
-                                    # 組合內容與寫入
-                                    heatmap_md = f"## 狗狗活動熱點統計\n![[{assets_rel_dir}/heatmap.jpg]]\n" if report["heatmap"] else ""
-                                    event_lines = [f"- **{e['time']}**: {e['event']}\n  ![[{assets_rel_dir}/{e['image']}]]" for e in report["events"]]
-                                    content = f"# 報告: {v.name}\n\n{heatmap_md}\n## 事件\n" + "\n".join(event_lines)
-                                    with open(md_path, 'w', encoding='utf-8') as f: f.write(content)
-                                    self.log(f"📝 已產生分析報告: {md_path.name} (位於: {md_path.parent})")
-                                except Exception as e:
-                                    self.log(f"⚠️ 寫入報告失敗: {e}", logging.WARNING)
-                            else:
-                                self.log(f"🔍 偵測結果: {report['summary']}")
-                    else:
-                        has_dog, _ = self.analyze_video(v)
-                        if has_dog:
-                            self.stats["videos"] += 1
-                            if not test_mode:
-                                try:
-                                    target = self.output_dir / "影片_有狗狗"
-                                    target.mkdir(parents=True, exist_ok=True)
-                                    shutil.copy2(v, target / v.name)
-                                except: pass
-                            else:
-                                self.log(f"🔍 影片中發現狗狗: {v.name}")
-                            
                     self.stats["processed"] += 1
                     if self.progress_callback:
                         self.progress_callback(self.stats["processed"], self.stats["total"], f"影片分析: {v.name}")
